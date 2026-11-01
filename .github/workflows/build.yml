@@ -1,0 +1,83 @@
+name: Build dashboard
+
+# The weekly refresh, automated: commit a new export to data/ and the
+# dashboard rebuilds, the contract tests run, and the published page updates.
+# This is the CI equivalent of the orchestration layer in ARCHITECTURE.md —
+# the same shape, sized to a single repository.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Scoped to the branch rather than a single global "pages" group, so two open
+# pull requests do not queue behind each other for a deploy neither will run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # No dependency install step: the pipeline is standard library only, and
+      # the JavaScript tests run on the Node already present on the runner.
+
+      - name: Contract tests (Python, build, and JavaScript)
+        run: python3 -m unittest -v
+
+      # Build once, then read the drift warnings out of that same run. A
+      # changed column in a new export is a NOTE, not a crash, so it has to be
+      # surfaced in the run summary or nobody will see it.
+      - name: Build dashboard
+        run: python3 build.py 2>&1 | tee build.log
+
+      - name: Report schema drift
+        run: |
+          grep '^  NOTE' build.log > drift.txt || true
+          if [ -s drift.txt ]; then
+            echo '### :warning: Schema drift in this export' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat drift.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo '### :white_check_mark: Every column recognised' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # Publishing is opt-in. GitHub Pages needs a paid plan on a private
+      # repository, so the deploy only runs where a PUBLISH_PAGES repository
+      # variable is set to 'true'. Without it the build and tests still run,
+      # and a private repo does not show a failing deploy.
+      - name: Stage site
+        if: github.ref == 'refs/heads/main' && vars.PUBLISH_PAGES == 'true'
+        run: |
+          mkdir -p _site
+          cp dashboard.html _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main' && vars.PUBLISH_PAGES == 'true'
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && vars.PUBLISH_PAGES == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

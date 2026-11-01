@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VM Time &amp; Impact</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --ink:#15181d; --muted:#646b77; --faint:#8d95a1;
+  --line:#e3e6eb; --line-soft:#eef0f4;
+  --accent:#2f6ae1; --accent-soft:#e8effd;
+  --good:#1f8a5b; --warn:#b4700c; --bad:#c0392b;
+  --warn-bg:#fdf4e3; --bad-bg:#fdeeec; --good-bg:#e9f6ef;
+  --bar:#2f6ae1; --bar-alt:#9aa6b8;
+  --radius:10px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1216; --panel:#171b21; --ink:#e8ebef; --muted:#9aa3b0; --faint:#6e7784;
+    --line:#262c35; --line-soft:#1e242b;
+    --accent:#6fa0ff; --accent-soft:#1b2740;
+    --good:#4bc08a; --warn:#e0a53f; --bad:#e8705f;
+    --warn-bg:#2a2214; --bad-bg:#2c1a18; --good-bg:#14271e;
+    --bar:#6fa0ff; --bar-alt:#49535f;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e8ebef; --muted:#9aa3b0; --faint:#6e7784;
+  --line:#262c35; --line-soft:#1e242b;
+  --accent:#6fa0ff; --accent-soft:#1b2740;
+  --good:#4bc08a; --warn:#e0a53f; --bad:#e8705f;
+  --warn-bg:#2a2214; --bad-bg:#2c1a18; --good-bg:#14271e;
+  --bar:#6fa0ff; --bar-alt:#49535f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+
+header.top{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;
+  padding-bottom:18px;border-bottom:1px solid var(--line);margin-bottom:22px}
+h1{font-size:23px;margin:0 0 4px;letter-spacing:-.01em;font-weight:650}
+.sub{color:var(--muted);font-size:13.5px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+button,select{font:inherit;color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
+button:hover,select:hover{border-color:var(--accent)}
+button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;border-radius:0;padding:7px 13px}
+.seg button + button{border-left:1px solid var(--line)}
+
+nav.tabs{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:20px;border-bottom:1px solid var(--line)}
+nav.tabs button{border:0;background:none;border-radius:0;padding:9px 14px;color:var(--muted);
+  border-bottom:2px solid transparent;margin-bottom:-1px;font-size:14px}
+nav.tabs button.on{color:var(--ink);border-bottom-color:var(--accent);background:none;font-weight:600}
+
+section.tab{display:none} section.tab.on{display:block}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 3px;font-weight:650;letter-spacing:-.005em}
+.card .why{color:var(--muted);font-size:13px;margin:0 0 16px;max-width:76ch}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.kpi .lab{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-bottom:7px}
+.kpi .val{font-size:26px;font-weight:620;letter-spacing:-.02em;line-height:1.1}
+.kpi .val small{font-size:14px;font-weight:500;color:var(--muted);margin-left:3px}
+.kpi .note{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.35}
+.kpi.flag-warn{border-color:var(--warn)} .kpi.flag-bad{border-color:var(--bad)}
+
+.bars{display:flex;flex-direction:column;gap:9px}
+.row{display:grid;grid-template-columns:1fr;gap:4px}
+.row .rl{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;align-items:baseline}
+.row .rl b{font-weight:600;font-variant-numeric:tabular-nums}
+.row .rl .delta{font-size:12px;font-variant-numeric:tabular-nums}
+.up{color:var(--good)} .down{color:var(--bad)} .flat{color:var(--faint)}
+.track{height:9px;background:var(--line-soft);border-radius:5px;overflow:hidden}
+.fill{height:100%;background:var(--bar);border-radius:5px;transition:width .45s cubic-bezier(.4,0,.2,1)}
+.fill.alt{background:var(--bar-alt)}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:600;
+   position:sticky;top:0;background:var(--panel)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;max-height:560px;overflow-y:auto}
+
+.pill{display:inline-block;font-size:11px;padding:2px 7px;border-radius:20px;border:1px solid var(--line);
+  color:var(--muted);white-space:nowrap}
+.pill.good{background:var(--good-bg);color:var(--good);border-color:transparent}
+.pill.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
+.pill.bad{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+.pill.accent{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+
+.callout{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 15px;
+  border-radius:0 8px 8px 0;font-size:13.5px;margin:0 0 16px;color:var(--ink)}
+.callout.warn{border-left-color:var(--warn);background:var(--warn-bg)}
+.callout b{font-weight:650}
+
+.funnel{display:flex;flex-direction:column;gap:3px}
+.fstep{display:grid;grid-template-columns:minmax(150px,210px) 1fr;gap:14px;align-items:center;padding:7px 0}
+.fstep .fl{font-size:13.5px}
+.fstep .fl small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+.fbar{height:30px;border-radius:5px;background:var(--bar);display:flex;align-items:center;
+  padding:0 10px;color:#fff;font-size:12.5px;font-weight:600;min-width:fit-content;white-space:nowrap;
+  transition:width .45s cubic-bezier(.4,0,.2,1)}
+:root[data-theme="dark"] .fbar,:root:not([data-theme="light"]) .fbar{color:#0f1216}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .fbar{color:#fff}}
+.fbar.fade1{background:color-mix(in srgb,var(--bar) 78%,var(--bar-alt))}
+.fbar.fade2{background:color-mix(in srgb,var(--bar) 48%,var(--bar-alt))}
+.fbar.fade3{background:color-mix(in srgb,var(--bar) 24%,var(--bar-alt))}
+
+.spark{display:block}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:10px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:baseline}
+code{font-family:var(--mono);font-size:12.5px;background:var(--line-soft);padding:1px 5px;border-radius:4px}
+ul.tight{margin:0;padding-left:20px} ul.tight li{margin-bottom:6px}
+.foot{color:var(--faint);font-size:12px;text-align:center;margin-top:30px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div>
+    <h1>Value Management — Time &amp; Impact</h1>
+    <div class="sub" id="subtitle"></div>
+  </div>
+  <div class="controls">
+    <select id="qsel" title="Fiscal quarter"></select>
+    <div class="seg" title="How team time is counted">
+      <button id="mPW" class="on">Person-weeks</button>
+      <button id="mHR">Raw hours</button>
+    </div>
+    <button id="theme" title="Light / dark">◐</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="overview" class="on">Overview</button>
+  <button data-tab="time">Where time goes</button>
+  <button data-tab="people">People</button>
+  <button data-tab="impact">Evidence chain</button>
+  <button data-tab="health">Data health</button>
+</nav>
+
+<section class="tab on" id="tab-overview">
+  <div id="measureNote"></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="grid2">
+    <div class="card">
+      <h2>Effort by work type</h2>
+      <p class="why">Opportunity and Account work is customer-attached. Practice Strategy &amp; Management is everything the team builds for itself and the field.</p>
+      <div class="bars" id="typeBars"></div>
+    </div>
+    <div class="card">
+      <h2>Effort by activity category</h2>
+      <p class="why">The team's own taxonomy, unchanged.</p>
+      <div class="bars" id="catBars"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Reporting volume by week</h2>
+    <p class="why">Hours logged each week, with the number of people who filed anything. Dips are usually reporting gaps, not quiet weeks — read this before reading any trend.</p>
+    <div id="weekChart"></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-time">
+  <div class="callout" id="mixCallout"></div>
+  <div class="card">
+    <h2>Top activities — both lenses side by side</h2>
+    <p class="why">Left bar is the share of effort on the measure you selected. The faint bar behind it is the other measure. Where the two disagree, the activity is concentrated in a few people's logging habits rather than spread across the team.</p>
+    <div class="bars" id="actBars"></div>
+    <div class="legend">
+      <span><i style="background:var(--bar)"></i><span id="lgA"></span></span>
+      <span><i style="background:var(--bar-alt)"></i><span id="lgB"></span></span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Does the ranking survive who you count?</h2>
+    <p class="why">The same share of hours, computed twice: once over everyone, once over only the people who log task by task. Where the two columns are close, the number describes the team. Where they diverge, it describes the form.</p>
+    <div class="scroll"><table id="lensTable"></table></div>
+  </div>
+  <div class="card">
+    <h2>Quarter on quarter</h2>
+    <p class="why">Share of team effort by category, each quarter. Quarters with fewer than four reported weeks are marked — they are stubs at the edge of the export, not real declines.</p>
+    <div class="scroll"><table id="qoqTable"></table></div>
+  </div>
+  <div class="card">
+    <h2>Effort by department</h2>
+    <div class="bars" id="deptBars"></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-people">
+  <div class="callout warn" id="peopleCallout"></div>
+  <div class="card">
+    <h2>Who reports what, and how</h2>
+    <p class="why">Sorted by reporting coverage. <b>Itemised</b> loggers file real tasks; <b>bulk</b> loggers book most of a week to one line, so their hours describe a calendar, not a workload. The strip shows which weeks each person filed.</p>
+    <div class="scroll"><table id="peopleTable"></table></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-impact">
+  <div class="callout warn" id="impactCallout"></div>
+  <div class="card">
+    <h2>From logged time to a closed outcome</h2>
+    <p class="why">Each step keeps only the hours that survive the one before it. The drop between steps two and three is not a performance result — it is the join between the time log and the CRM failing.</p>
+    <div class="funnel" id="funnel"></div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h2>Pipeline touched</h2>
+      <p class="why">Distinct opportunities named in the time log, and their combined value. Counted once each, regardless of how many times they appear.</p>
+      <div class="bars" id="pipeBars"></div>
+    </div>
+    <div class="card">
+      <h2>How the match was made</h2>
+      <p class="why">There is no shared key between the two files. Matches are made on name, then on a deal value unique enough to identify one opportunity.</p>
+      <div class="bars" id="tierBars"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>The opportunities that did match</h2>
+    <p class="why">Every link the pipeline could defend. This is the complete evidence base for any claim connecting the team's time to a won or lost deal.</p>
+    <div class="scroll"><table id="matchTable"></table></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-health">
+  <div class="card">
+    <h2>What the loader did to the files</h2>
+    <div class="scroll"><table id="issueTable"></table></div>
+    <div id="warnBox"></div>
+  </div>
+  <div class="card">
+    <h2>Which fiscal calendar the quarters use</h2>
+    <p class="why">The CRM extract gives a fiscal period but never a close date, so the year-start has to be inferred. For each opportunity the pipeline could match, work should land in or before the quarter the deal closes in. Every candidate year-start was scored on that. The winner is used throughout; change <code>FISCAL_START_MONTH</code> in <code>pipeline.py</code> if the real calendar differs.</p>
+    <div id="fiscalNote"></div>
+    <div class="scroll"><table id="fiscalTable"></table></div>
+  </div>
+  <div class="card">
+    <h2>Known limits of this dashboard</h2>
+    <div id="limits"></div>
+  </div>
+</section>
+
+<div class="foot" id="foot"></div>
+</div>
+
+<script id="payload" type="application/json">__DATA__</script>
+<script>__LOGIC__</script>
+<script>
+(function(){
+"use strict";
+
+// template.html is a template, not a page: the build step replaces the
+// placeholder below with the data. Opening the template directly used to give
+// a blank screen with an error only visible in the console.
+var raw = document.getElementById('payload').textContent;
+if (raw.indexOf('__' + 'DATA__') === 0) {
+  document.body.innerHTML =
+    '<div style="max-width:40em;margin:15vh auto;padding:0 1.5em;font:16px/1.6 ' +
+    '-apple-system,BlinkMacSystemFont,sans-serif">' +
+    '<h1 style="font-size:20px">This is the template, not the dashboard.</h1>' +
+    '<p>It has no data in it yet. Build the dashboard and open that instead:</p>' +
+    '<pre style="background:#eee;color:#15181d;padding:1em;border-radius:8px;' +
+    'overflow-x:auto">python3 build.py</pre>' +
+    '<p>Then open <b>dashboard.html</b> in this same folder.</p></div>';
+  return;
+}
+var D = JSON.parse(raw);
+
+// Computation lives in dashboard_logic.js so it can be tested head-first;
+// this file only decides what things look like.
+var num = VMDash.num, pct = VMDash.pct, money = VMDash.money,
+    isStub = VMDash.isStub, pairRows = VMDash.pairRows;
+var QKEYS = VMDash.quarterKeys(D);
+var state = { quarter: QKEYS[QKEYS.length-1], measure: 'pw', tab: 'overview' };
+
+// ---- helpers ------------------------------------------------------------
+function $(id){ return document.getElementById(id); }
+function el(tag, cls, txt){ var e=document.createElement(tag); if(cls)e.className=cls;
+  if(txt!==undefined)e.textContent=txt; return e; }
+function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
+function clear(node){ while(node.firstChild) node.removeChild(node.firstChild); }
+function q(){ return D.quarters[state.quarter]; }
+function isAll(){ return state.quarter === '__all__'; }
+function measureLabel(){ return state.measure==='pw' ? 'person-weeks' : 'hours'; }
+function otherLabel(){ return state.measure==='pw' ? 'raw hours' : 'person-weeks'; }
+
+// The "All reported weeks" option. Built in dashboard_logic.js, under test.
+D.quarters['__all__'] = VMDash.makeAll(D);
+
+// ---- bar lists ----------------------------------------------------------
+function drawBars(node, rows, opts){
+  opts = opts || {};
+  clear(node);
+  if(!rows || !rows.length){ node.appendChild(el('p','why','No data for this selection.')); return; }
+  var max = Math.max.apply(null, rows.map(function(r){ return r.pct; }));
+  rows.forEach(function(r){
+    var row = el('div','row');
+    var lab = el('div','rl');
+    var left = el('span');
+    left.appendChild(document.createTextNode(r.label));
+    // How much of this bar comes from people who book a whole week to one line.
+    if(r.bulk_pct !== undefined && r.bulk_pct >= 40){
+      var bp = el('span','pill warn', r.bulk_pct + '% from bulk logs');
+      bp.style.marginLeft = '8px';
+      bp.title = 'Most of this figure comes from people who book a whole week to a single '
+        + 'line, so it reflects the limits of their logging detail rather than a team priority.';
+      left.appendChild(bp);
+    }
+    lab.appendChild(left);
+    var right = el('span');
+    var b = el('b', null, pct(r.pct));
+    right.appendChild(b);
+    if(opts.compare && r.other !== undefined){
+      var diff = r.pct - r.other;
+      var cls = Math.abs(diff) < 1.5 ? 'flat' : (diff > 0 ? 'up' : 'down');
+      var d = el('span','delta '+cls, '  ' + (diff>0?'+':'') + num(diff,1) + 'pp');
+      right.appendChild(d);
+    }
+    lab.appendChild(right);
+    row.appendChild(lab);
+    if(opts.compare && r.other !== undefined){
+      var t2 = el('div','track');
+      var f2 = el('div','fill alt'); f2.style.width = (100*r.other/max)+'%';
+      t2.appendChild(f2); t2.style.height='5px'; t2.style.marginBottom='2px';
+      row.appendChild(t2);
+    }
+    var t = el('div','track');
+    var f = el('div','fill'); f.style.width = (100*r.pct/max)+'%';
+    t.appendChild(f); row.appendChild(t);
+    node.appendChild(row);
+  });
+}
+
+// ---- overview -----------------------------------------------------------
+function drawOverview(){
+  var Q = q(), H = D.headline;
+  var usingPW = state.measure==='pw';
+
+  var note = $('measureNote'); clear(note);
+  var c = el('div','callout');
+  c.innerHTML = usingPW
+    ? '<b>Measuring in person-weeks.</b> One person logging one week counts as 1.0, '
+      + 'split across their rows in proportion to the hours they booked. This is the only '
+      + 'measure on which the ' + H.bulk_people + ' people who book a whole week to a single '
+      + 'line and the ' + (H.people - H.bulk_people) + ' who log task by task can be compared. '
+      + 'Switch to raw hours to see how much that choice changes the picture.'
+    : '<b>Measuring in raw hours, as logged.</b> Treat comparisons between people with care: '
+      + H.bulk_people + ' of ' + H.people + ' people book most of a week to one line and account for '
+      + H.bulk_hours_pct + '% of all logged hours, so this measure reflects how people fill the '
+      + 'form as much as what they worked on.';
+  note.appendChild(c);
+
+  if(isStub(Q)){
+    var w = el('div','callout warn');
+    w.innerHTML = '<b>' + esc(Q.label) + ' holds only ' + Q.week_count + ' reported week'
+      + (Q.week_count===1?'':'s') + '.</b> It sits at the edge of the export rather than being a '
+      + 'full quarter. Totals here are not comparable with a full quarter.';
+    note.appendChild(w);
+  }
+
+  var kp = $('kpis'); clear(kp);
+  function kpi(lab, val, unit, note, flag){
+    var k = el('div','kpi' + (flag?' flag-'+flag:''));
+    k.appendChild(el('div','lab',lab));
+    var v = el('div','val'); v.appendChild(document.createTextNode(val));
+    if(unit){ var s=el('small',null,unit); v.appendChild(s); }
+    k.appendChild(v);
+    if(note) k.appendChild(el('div','note',note));
+    kp.appendChild(k);
+  }
+  kpi('Effort recorded',
+      usingPW ? num(Q.person_weeks,0) : num(Q.hours,0),
+      usingPW ? 'person-weeks' : 'hours',
+      Q.week_count + ' weeks · ' + Q.person_count + ' people reporting');
+  kpi('Reporting coverage', H.coverage_pct, '%',
+      'Share of possible person-weeks actually filed across the whole export',
+      H.coverage_pct < 80 ? 'warn' : null);
+  kpi('Logged per person-week', num(Q.hours_per_person_week,1), 'h',
+      'Against a 40h week — the gap is unfiled time, not idle time',
+      Q.hours_per_person_week < 35 ? 'warn' : null);
+  kpi('Customer-facing effort', pct(Q.prospect_facing_pct), '',
+      'Share of effort flagged Prospect Facing');
+  kpi('Attached to an opportunity', pct(H.opp_linked_pct), '',
+      'Share of all logged hours naming an opportunity');
+  kpi('Traceable to a closed deal', pct(H.crm_matched_pct), '',
+      H.opps_matched + ' of ' + H.opps_touched + ' opportunities in the log could be found in the CRM extract',
+      'bad');
+
+  drawBars($('typeBars'), pairRows(
+    usingPW ? Q.by_type_pw : Q.by_type_hours,
+    usingPW ? Q.by_type_hours : Q.by_type_pw), {compare:true});
+  drawBars($('catBars'), pairRows(
+    usingPW ? Q.by_category_pw : Q.by_category_hours,
+    usingPW ? Q.by_category_hours : Q.by_category_pw), {compare:true});
+
+  drawWeeks();
+}
+
+// ---- weekly chart (inline SVG) -----------------------------------------
+function drawWeeks(){
+  var host = $('weekChart'); clear(host);
+  var W = D.weekly, n = W.length;
+  var w = 1060, h = 190, padL = 42, padR = 12, padT = 12, padB = 44;
+  var iw = w - padL - padR, ih = h - padT - padB;
+  var max = Math.max.apply(null, W.map(function(d){ return d.hours; })) * 1.12;
+  var bw = iw / n;
+
+  var svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox','0 0 '+w+' '+h);
+  svg.setAttribute('class','spark');
+  svg.style.width='100%'; svg.style.height='auto';
+  function mk(tag, attrs){
+    var e = document.createElementNS('http://www.w3.org/2000/svg',tag);
+    for(var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+  // y gridlines
+  [0,0.5,1].forEach(function(f){
+    var y = padT + ih - f*ih;
+    svg.appendChild(mk('line',{x1:padL,x2:w-padR,y1:y,y2:y,
+      stroke:'var(--line)','stroke-width':1}));
+    var t = mk('text',{x:padL-8,y:y+4,'text-anchor':'end',
+      'font-size':11,fill:'var(--faint)'});
+    t.textContent = Math.round(max*f);
+    svg.appendChild(t);
+  });
+  var selWeeks = {}; (q().weeks||[]).forEach(function(k){ selWeeks[k]=1; });
+  W.forEach(function(d,i){
+    var bh = max ? (d.hours/max)*ih : 0;
+    var x = padL + i*bw + bw*0.16, bwid = bw*0.68;
+    var inSel = isAll() || selWeeks[d.week];
+    var fill = d.partial ? 'var(--warn)'
+             : d.thin ? 'var(--bad)'
+             : (inSel ? 'var(--bar)' : 'var(--bar-alt)');
+    var r = mk('rect',{x:x, y:padT+ih-bh, width:bwid, height:Math.max(bh,1),
+      fill:fill, rx:2, opacity: inSel||d.partial||d.thin ? 1 : 0.45});
+    var ttl = mk('title');
+    ttl.textContent = d.week + ' — ' + num(d.hours,1) + 'h, ' + d.people + ' people, '
+      + d.rows + ' rows'
+      + (d.partial ? '  (still filling in — excluded from totals)' : '')
+      + (d.thin ? '  (reporting gap — kept in totals, but this week is not a real low)' : '');
+    r.appendChild(ttl);
+    svg.appendChild(r);
+    if(i % 3 === 0 || i === n-1){
+      var lab = mk('text',{x:x+bwid/2, y:h-24,'text-anchor':'middle',
+        'font-size':10, fill:'var(--faint)'});
+      lab.textContent = d.week.slice(5);
+      svg.appendChild(lab);
+    }
+    var pl = mk('text',{x:x+bwid/2, y:h-10,'text-anchor':'middle',
+      'font-size':9.5, fill: d.people < 15 ? 'var(--warn)' : 'var(--faint)'});
+    pl.textContent = d.people;
+    svg.appendChild(pl);
+  });
+  host.appendChild(svg);
+  var lg = el('div','legend');
+  lg.innerHTML = '<span><i style="background:var(--bar)"></i>In selected quarter</span>'
+    + '<span><i style="background:var(--bar-alt)"></i>Other weeks</span>'
+    + '<span><i style="background:var(--warn)"></i>Still filling in — excluded from every total</span>'
+    + '<span><i style="background:var(--bad)"></i>Reporting gap — kept in totals, not a real low</span>'
+    + '<span>Bottom row: people reporting that week</span>';
+  host.appendChild(lg);
+}
+
+// ---- where time goes ----------------------------------------------------
+function drawTime(){
+  var Q = q(), H = D.headline;
+  var usingPW = state.measure==='pw';
+  var primary   = usingPW ? Q.by_activity_pw : Q.by_activity_hours;
+  var secondary = usingPW ? Q.by_activity_hours : Q.by_activity_pw;
+  var rows = pairRows(primary, secondary);
+
+  // The sharpest version of the distortion: the same ranking computed over
+  // everyone, then over only the people who log task by task.
+  var g = (D.lens_gap || [])[0];
+  var cal = $('mixCallout');
+  if(g && Math.abs(g.gap) >= 3){
+    cal.innerHTML = '<b>The single biggest number on this dashboard is mostly an artefact.</b> '
+      + esc(g.label) + ' is ' + pct(g.everyone) + ' of logged hours across the whole team — but '
+      + 'only ' + pct(g.itemised) + ' among the ' + (H.people - H.bulk_people) + ' people who log '
+      + 'task by task. The difference is not extra work; it is ' + H.bulk_people + ' people with '
+      + 'nowhere granular to put a week. Treat ' + esc(g.label) + ' as "unclassified effort" '
+      + 'until the form changes.';
+  } else {
+    cal.innerHTML = 'The ranking below holds whether you count everyone or only the people who '
+      + 'log task by task, so it is robust to how the form gets filled in.';
+  }
+
+  $('lgA').textContent = 'Share by ' + measureLabel() + ' (selected)';
+  $('lgB').textContent = 'Share by ' + otherLabel();
+  drawBars($('actBars'), rows, {compare:true});
+
+  // everyone vs itemised-only
+  var lt = $('lensTable'); clear(lt);
+  var lh = el('thead'), lr = el('tr');
+  ['Activity','Counting everyone','Counting only itemised loggers','Difference','Read it as']
+    .forEach(function(h,i){ lr.appendChild(el('th', (i>=1&&i<=3)?'num':null, h)); });
+  lh.appendChild(lr); lt.appendChild(lh);
+  var ltb = el('tbody');
+  (D.lens_gap||[]).forEach(function(r){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,r.label));
+    tr.appendChild(el('td','num', pct(r.everyone)));
+    tr.appendChild(el('td','num', pct(r.itemised)));
+    var d = el('td','num');
+    d.appendChild(el('span','delta '+(Math.abs(r.gap)<1.5?'flat':(r.gap>0?'down':'up')),
+      (r.gap>0?'+':'')+num(r.gap,1)+'pp'));
+    tr.appendChild(d);
+    var verdict = VMDash.lensVerdict(r.gap);
+    var look = {
+      solid:       ['good', 'solid'],
+      inflated:    ['bad',  'inflated by bulk logging'],
+      understated: ['warn', 'understated — hidden inside bulk logs']
+    }[verdict];
+    var v = el('td');
+    v.appendChild(el('span','pill '+look[0], look[1]));
+    tr.appendChild(v);
+    ltb.appendChild(tr);
+  });
+  lt.appendChild(ltb);
+
+  // quarter on quarter
+  var cats = {}, order = [];
+  QKEYS.forEach(function(k){
+    (D.quarters[k].by_category_pw||[]).forEach(function(r){
+      if(!(r.label in cats)){ cats[r.label]={}; order.push(r.label); }
+      cats[r.label][k] = r.pct;
+    });
+  });
+  order.sort(function(a,b){
+    var sa=0,sb=0; QKEYS.forEach(function(k){ sa+=cats[a][k]||0; sb+=cats[b][k]||0; });
+    return sb-sa;
+  });
+  var t = $('qoqTable'); clear(t);
+  var thead = el('thead'), hr = el('tr');
+  hr.appendChild(el('th',null,'Activity category'));
+  QKEYS.forEach(function(k){
+    var Qq = D.quarters[k];
+    var th = el('th','num');
+    th.appendChild(document.createTextNode(k));
+    var s = el('div'); s.style.fontWeight='400'; s.style.textTransform='none';
+    s.style.letterSpacing='0'; s.style.marginTop='2px';
+    s.textContent = Qq.week_count + (isStub(Qq)?' wk (stub)':' wks');
+    th.appendChild(s);
+    hr.appendChild(th);
+  });
+  hr.appendChild(el('th','num','Move'));
+  thead.appendChild(hr); t.appendChild(thead);
+  var tb = el('tbody');
+  var full = QKEYS.filter(function(k){ return !isStub(D.quarters[k]); });
+  order.forEach(function(cat){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,cat));
+    QKEYS.forEach(function(k){ tr.appendChild(el('td','num', pct(cats[cat][k]||0))); });
+    var mv = el('td','num');
+    if(full.length >= 2){
+      var a = cats[cat][full[full.length-2]]||0, b = cats[cat][full[full.length-1]]||0;
+      var d = b-a;
+      var sp = el('span','delta '+(Math.abs(d)<1.5?'flat':(d>0?'up':'down')),
+        (d>0?'+':'')+num(d,1)+'pp');
+      mv.appendChild(sp);
+    } else { mv.textContent='—'; }
+    tr.appendChild(mv);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+
+  drawBars($('deptBars'), Q.by_department_pw || []);
+}
+
+// ---- people -------------------------------------------------------------
+function drawPeople(){
+  var H = D.headline;
+  $('peopleCallout').innerHTML =
+    '<b>Hours are not comparable between these people.</b> Median weekly hours run from '
+    + num(Math.min.apply(null, D.people.map(function(p){return p.median_week_hours;})),1)
+    + 'h to '
+    + num(Math.max.apply(null, D.people.map(function(p){return p.median_week_hours;})),1)
+    + 'h, and ' + H.bulk_people + ' of ' + H.people + ' people book most of a week to a single '
+    + 'line. That spread is reporting behaviour. Nothing on this page should be read as '
+    + 'productivity, and the coverage column is the first thing to fix.';
+
+  var t = $('peopleTable'); clear(t);
+  var thead = el('thead'), hr = el('tr');
+  // Each header carries the alignment of the cells beneath it. Spelled out
+  // rather than derived from the index, so adding a column cannot silently
+  // shift every heading after it out of line with its own data.
+  [['Person',null],['Team',null],['Logging style',null],['Weeks filed',null],
+   ['Weeks reported','num'],['Median week','num'],['Busiest week','num'],
+   ['Person-weeks','num'],['Customer-facing','num'],['Top activity',null]]
+    .forEach(function(h){ hr.appendChild(el('th', h[1], h[0])); });
+  thead.appendChild(hr); t.appendChild(thead);
+  var tb = el('tbody');
+  var weeks = D.weekly.filter(function(w){ return !w.partial; }).map(function(w){ return w.week; });
+  D.people.slice().sort(function(a,b){ return b.coverage_pct - a.coverage_pct; })
+  .forEach(function(p){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,p.name));
+    var team = el('td'); team.appendChild(document.createTextNode(p.department));
+    var m = el('div'); m.style.color='var(--faint)'; m.style.fontSize='12px';
+    m.textContent = p.manager; team.appendChild(m);
+    tr.appendChild(team);
+    var st = el('td');
+    st.appendChild(el('span','pill ' + (p.style==='bulk'?'warn':'good'),
+      p.style==='bulk' ? 'bulk' : 'itemised'));
+    var sd = el('div'); sd.style.color='var(--faint)'; sd.style.fontSize='11.5px';
+    sd.style.marginTop='3px';
+    sd.textContent = num(p.rows_per_week,1) + ' rows/wk · ' + num(p.median_row_hours,1) + 'h/row';
+    st.appendChild(sd);
+    tr.appendChild(st);
+
+    // coverage strip
+    var cov = el('td');
+    var svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('viewBox','0 0 '+(weeks.length*5)+' 14');
+    svg.setAttribute('width', weeks.length*5); svg.setAttribute('height',14);
+    var filed = {}; p.weeks_by_week.forEach(function(w){ filed[w]=1; });
+    weeks.forEach(function(w,i){
+      var r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      r.setAttribute('x', i*5); r.setAttribute('y', 2);
+      r.setAttribute('width', 4); r.setAttribute('height', 10); r.setAttribute('rx',1);
+      r.setAttribute('fill', filed[w] ? 'var(--bar)' : 'var(--line)');
+      var ti = document.createElementNS('http://www.w3.org/2000/svg','title');
+      ti.textContent = w + (filed[w] ? ' — filed' : ' — nothing filed');
+      r.appendChild(ti);
+      svg.appendChild(r);
+    });
+    cov.appendChild(svg);
+    tr.appendChild(cov);
+
+    var cp = el('td','num');
+    cp.appendChild(el('span','pill ' + (p.coverage_pct>=80?'good':(p.coverage_pct>=50?'warn':'bad')),
+      p.coverage_pct + '%'));
+    var cd = el('div'); cd.style.color='var(--faint)'; cd.style.fontSize='11.5px';
+    cd.style.marginTop='3px';
+    cd.textContent = p.weeks_reported + '/' + p.weeks_possible;
+    cp.appendChild(cd);
+    tr.appendChild(cp);
+
+    tr.appendChild(el('td','num', num(p.median_week_hours,1)+'h'));
+    tr.appendChild(el('td','num', num(p.max_week_hours,1)+'h'));
+    tr.appendChild(el('td','num', num(p.person_weeks,1)));
+    tr.appendChild(el('td','num', pct(p.prospect_facing_pct)));
+    var ta = el('td');
+    if(p.top_activities.length){
+      ta.appendChild(document.createTextNode(p.top_activities[0].label));
+      var pc = el('div'); pc.style.color='var(--faint)'; pc.style.fontSize='12px';
+      pc.textContent = pct(p.top_activities[0].pct) + ' of their effort';
+      ta.appendChild(pc);
+    }
+    tr.appendChild(ta);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+}
+
+// ---- evidence chain -----------------------------------------------------
+function drawImpact(){
+  var Q = q(), F = Q.funnel, H = D.headline;
+  $('impactCallout').innerHTML =
+    '<b>This is the question the data cannot yet answer.</b> The time log identifies an '
+    + 'opportunity by a hand-typed name; the CRM extract identifies it by an id the time log '
+    + 'never carries. ' + H.opps_matched + ' of the ' + H.opps_touched + ' opportunities in the '
+    + 'log could be matched to the ' + H.opps_in_crm + ' closed deals — ' + pct(H.crm_matched_pct)
+    + ' of logged hours. Any win-rate or ROI figure built on that base would be a number with '
+    + 'no evidence under it. Putting the opportunity id in the time log closes this gap in one change.';
+
+  var detail = {
+    all: ['Every hour in the selected period', ''],
+    opp: [(F.opps_touched||0) + ' distinct opportunities · '
+          + money(F.value_touched||0) + ' of deal value', 'fade1'],
+    crm: [(F.opps_matched||0) + ' opportunities matched · '
+          + money(F.value_matched||0), 'fade2'],
+    won: [(F.opps_won||0) + ' won · ' + money(F.value_won||0), 'fade3']
+  };
+  var host = $('funnel'); clear(host);
+  VMDash.funnelSteps(F).forEach(function(s){
+    var row = el('div','fstep');
+    var l = el('div','fl');
+    l.appendChild(document.createTextNode(s.label));
+    l.appendChild(el('small',null,detail[s.key][0]));
+    row.appendChild(l);
+    var holder = el('div');
+    var b = el('div','fbar '+detail[s.key][1]);
+    b.style.width = Math.max(s.share, 2) + '%';
+    b.textContent = num(s.hours,0) + 'h  ·  ' + pct(s.share);
+    holder.appendChild(b);
+    row.appendChild(holder);
+    host.appendChild(row);
+  });
+
+  // Both bars share the selection's own denominator, so the second reads as
+  // "of the opportunities named in this period, this share was found".
+  var base = Math.max(F.opps_touched || 0, 1);
+  drawBars($('pipeBars'), [
+    {label:'Opportunities named in the time log  (' + num(F.opps_touched||0) + ')',
+     value:F.opps_touched||0, pct: 100},
+    {label:'Of those, found in the CRM extract  (' + num(F.opps_matched||0) + ')',
+     value:F.opps_matched||0, pct: 100*(F.opps_matched||0)/base}
+  ]);
+
+  var tiers = {};
+  D.matched.forEach(function(m){ tiers[m.tier] = (tiers[m.tier]||0)+1; });
+  var tot = D.matched.length || 1;
+  drawBars($('tierBars'), Object.keys(tiers).map(function(k){
+    return {label:k, value:tiers[k], pct:100*tiers[k]/tot};
+  }).sort(function(a,b){ return b.value-a.value; }));
+
+  var t = $('matchTable'); clear(t);
+  var thead = el('thead'), hr = el('tr');
+  ['Opportunity','Account','Outcome','Deal value','Hours logged','Closed','Matched on','People']
+    .forEach(function(h,i){ hr.appendChild(el('th', (i===3||i===4)?'num':null, h)); });
+  thead.appendChild(hr); t.appendChild(thead);
+  var tb = el('tbody');
+  D.matched.forEach(function(m){
+    var tr = el('tr');
+    var n = el('td'); n.appendChild(document.createTextNode(m.name));
+    var sd = el('div'); sd.style.color='var(--faint)'; sd.style.fontSize='11.5px';
+    sd.textContent = m.first_week + ' → ' + m.last_week;
+    n.appendChild(sd); tr.appendChild(n);
+    tr.appendChild(el('td',null,m.account));
+    var o = el('td');
+    o.appendChild(el('span','pill '+(m.stage_group==='Won'?'good':'bad'), m.stage_group));
+    tr.appendChild(o);
+    tr.appendChild(el('td','num', money(m.amount)));
+    tr.appendChild(el('td','num', num(m.hours,1)));
+    tr.appendChild(el('td',null,m.fiscal_period));
+    var tt = el('td'); tt.appendChild(el('span','pill '+(m.tier==='exact name'?'accent':''), m.tier));
+    tr.appendChild(tt);
+    tr.appendChild(el('td',null,m.people.join(', ')));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+}
+
+// ---- data health --------------------------------------------------------
+function drawHealth(){
+  var t = $('issueTable'); clear(t);
+  var thead = el('thead'), hr = el('tr');
+  ['What was found','Rows','What the pipeline did'].forEach(function(h,i){
+    hr.appendChild(el('th', i===1?'num':null, h)); });
+  thead.appendChild(hr); t.appendChild(thead);
+  var tb = el('tbody');
+  var explain = {
+    'Duplicate rows removed':
+      'Byte-identical rows appearing twice. Kept once.',
+    "Rows with an unreadable 'Week of'":
+      'Dropped — without a week they cannot be placed in a quarter.',
+    'Rows where the hour columns did not add up':
+      'Activity + preparation + travel did not equal the total. The three components are trusted over the stated total.',
+    'Rows in a still-filling week (excluded from totals)':
+      'The last week of the export was far thinner than a normal week, so it is treated as mid-collection and left out of every figure.'
+  };
+  D.issues.forEach(function(i){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,i.label));
+    var c = el('td','num');
+    c.appendChild(el('span','pill '+(i.count?'warn':'good'), num(i.count)));
+    tr.appendChild(c);
+    tr.appendChild(el('td',null, explain[i.label] || ''));
+    tb.appendChild(tr);
+  });
+  // structural findings the loader cannot fix on its own
+  [
+    ['Column names differ between the two exports', '2 columns',
+     '"Opportunity Name" became "OpportunityName" and "HoursTotal" became "Hours Total" between part 1 and part 2. The loader matches columns on a squashed name, so spacing and punctuation changes no longer break it, and it reports any column it does not recognise.'],
+    ['One department spelled two ways', '2 spellings',
+     '"VM Digital COE" and "VM, Digital COE" are the same unit. Rolled together for department totals; the manager column still separates the sub-teams.'],
+    ['Two departments have no manager recorded', '160 rows',
+     'Value Management Readiness and Global Functional Revenue Operations carry a blank VM Manager throughout. Shown as "(none recorded)" rather than silently grouped.'],
+    ['Bulk logging', D.headline.bulk_people + ' people',
+     'They account for ' + D.headline.bulk_hours_pct + '% of all logged hours. Not an error, but it makes raw hours non-comparable, which is why person-weeks exist.'],
+    ['Notes containing their own hour breakdown', D.headline.notes_with_own_breakdown + ' rows',
+     'Covering ' + num(D.headline.notes_breakdown_hours) + 'h. People are writing splits like "8h this, 4h that" into free text because the form gives them nowhere else to put it. Parsing this is the single biggest available gain in detail.'],
+    ['No key joins the time log to the CRM', D.headline.opps_touched + ' opportunities',
+     'Matched ' + D.headline.opps_matched + ' by name and by unique deal value. The rest cannot be traced to an outcome.']
+  ].forEach(function(r){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,r[0]));
+    var c = el('td','num'); c.appendChild(el('span','pill warn', r[1])); tr.appendChild(c);
+    tr.appendChild(el('td',null,r[2]));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+
+  var wb = $('warnBox'); clear(wb);
+  if(D.warnings.length){
+    var c = el('div','callout warn');
+    c.innerHTML = '<b>Loader warnings from this run:</b><ul class="tight">'
+      + D.warnings.map(function(w){ return '<li>'+esc(w)+'</li>'; }).join('') + '</ul>';
+    wb.appendChild(c);
+  } else {
+    wb.appendChild(el('p','why','No unrecognised columns in this run — every column in every '
+      + 'input file was understood.'));
+  }
+
+  var ft = $('fiscalTable'); clear(ft);
+  var fn = $('fiscalNote'); clear(fn);
+  if(!D.fiscal.evidence.length){
+    // Nothing matched, so there was nothing to score the calendar against.
+    // Say so rather than leaving an empty table under a confident heading.
+    var fw = el('div','callout warn');
+    fw.innerHTML = '<b>The fiscal calendar could not be checked against anything in this run.</b> '
+      + 'Scoring it needs opportunities that appear in both the time log and the CRM extract, '
+      + 'and this run matched none. Quarters are still grouped on a year starting 1 '
+      + esc(D.fiscal.start_month_name) + ', but that is an assumption here rather than a '
+      + 'tested one.';
+    fn.appendChild(fw);
+  } else {
+  var th2 = el('thead'), h2 = el('tr');
+  ['Year starts','Work lands in the closing quarter','Work lands in or before it','Verdict']
+    .forEach(function(h,i){ h2.appendChild(el('th', (i===1||i===2)?'num':null, h)); });
+  th2.appendChild(h2); ft.appendChild(th2);
+  var tb2 = el('tbody');
+  D.fiscal.evidence.forEach(function(e,i){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,'1 '+e.month_name));
+    tr.appendChild(el('td','num', e.same_quarter_pct+'%'));
+    tr.appendChild(el('td','num', e.work_before_close_pct+'%'));
+    var v = el('td');
+    v.appendChild(el('span','pill '+(i===0?'good':''), i===0 ? 'used' : 'rejected'));
+    tr.appendChild(v);
+    tb2.appendChild(tr);
+  });
+  ft.appendChild(tb2);
+  }
+
+  var lim = $('limits'); clear(lim);
+  var ul = el('ul','tight');
+  [
+    'Reporting coverage is ' + D.headline.coverage_pct + '%. Every absolute total understates '
+      + 'reality by roughly the inverse of that, and unevenly by person.',
+    'The project register was inspected by hand but is deliberately not loaded by the pipeline — '
+      + 'nothing in the time log names a project id, so any link would be a guess dressed as a fact.',
+    'The CRM extract contains only closed deals. Work on live pipeline, which is most of the '
+      + 'opportunity work here, has no outcome to point at yet and is not missing data.',
+    'Hours on a matched won deal do not mean the hours caused the win. The funnel measures '
+      + 'traceability, not contribution.',
+    'Deal values are counted once per opportunity within whichever period is selected. An '
+      + 'opportunity worked in two quarters appears in both quarter views; the "All reported '
+      + 'weeks" view is computed from the rows, not by adding the quarters up, so nothing is '
+      + 'counted twice there.'
+  ].forEach(function(s){ ul.appendChild(el('li',null,s)); });
+  lim.appendChild(ul);
+}
+
+// ---- wiring -------------------------------------------------------------
+function render(){
+  $('subtitle').textContent =
+    D.period.first_week + ' to ' + D.period.last_week + ' · '
+    + D.headline.weeks + ' complete weeks · ' + D.headline.people + ' people · fiscal year starts 1 '
+    + D.fiscal.start_month_name;
+  var draw = {overview:drawOverview, time:drawTime, people:drawPeople,
+              impact:drawImpact, health:drawHealth}[state.tab];
+  if(draw) draw();
+  $('foot').textContent = 'Built ' + D.generated + ' from ' + D.files.join(' + ')
+    + ' · regenerate with: python3 build.py';
+}
+
+var sel = $('qsel');
+QKEYS.concat(['__all__']).forEach(function(k){
+  var o = el('option', null, k==='__all__' ? 'All reported weeks' : k);
+  o.value = k; sel.appendChild(o);
+});
+sel.value = state.quarter;
+sel.addEventListener('change', function(){ state.quarter = sel.value; render(); });
+
+$('mPW').addEventListener('click', function(){
+  state.measure='pw'; $('mPW').className='on'; $('mHR').className=''; render(); });
+$('mHR').addEventListener('click', function(){
+  state.measure='hr'; $('mHR').className='on'; $('mPW').className=''; render(); });
+
+Array.prototype.forEach.call(document.querySelectorAll('nav.tabs button'), function(b){
+  b.addEventListener('click', function(){
+    Array.prototype.forEach.call(document.querySelectorAll('nav.tabs button'),
+      function(x){ x.className=''; });
+    b.className='on';
+    Array.prototype.forEach.call(document.querySelectorAll('section.tab'),
+      function(s){ s.className='tab'; });
+    $('tab-'+b.dataset.tab).className='tab on';
+    state.tab = b.dataset.tab;
+    render();
+  });
+});
+
+$('theme').addEventListener('click', function(){
+  var cur = document.documentElement.getAttribute('data-theme');
+  var next = cur === 'dark' ? 'light' : (cur === 'light' ? 'dark' :
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark'));
+  document.documentElement.setAttribute('data-theme', next);
+});
+
+render();
+})();
+</script>
+</body>
+</html>

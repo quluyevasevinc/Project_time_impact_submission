@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+_site/
+drift.txt
+build.log
+.js_tests_bundle.js

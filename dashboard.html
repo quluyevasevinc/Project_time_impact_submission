@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VM Time &amp; Impact</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --ink:#15181d; --muted:#646b77; --faint:#8d95a1;
+  --line:#e3e6eb; --line-soft:#eef0f4;
+  --accent:#2f6ae1; --accent-soft:#e8effd;
+  --good:#1f8a5b; --warn:#b4700c; --bad:#c0392b;
+  --warn-bg:#fdf4e3; --bad-bg:#fdeeec; --good-bg:#e9f6ef;
+  --bar:#2f6ae1; --bar-alt:#9aa6b8;
+  --radius:10px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1216; --panel:#171b21; --ink:#e8ebef; --muted:#9aa3b0; --faint:#6e7784;
+    --line:#262c35; --line-soft:#1e242b;
+    --accent:#6fa0ff; --accent-soft:#1b2740;
+    --good:#4bc08a; --warn:#e0a53f; --bad:#e8705f;
+    --warn-bg:#2a2214; --bad-bg:#2c1a18; --good-bg:#14271e;
+    --bar:#6fa0ff; --bar-alt:#49535f;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1216; --panel:#171b21; --ink:#e8ebef; --muted:#9aa3b0; --faint:#6e7784;
+  --line:#262c35; --line-soft:#1e242b;
+  --accent:#6fa0ff; --accent-soft:#1b2740;
+  --good:#4bc08a; --warn:#e0a53f; --bad:#e8705f;
+  --warn-bg:#2a2214; --bad-bg:#2c1a18; --good-bg:#14271e;
+  --bar:#6fa0ff; --bar-alt:#49535f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+
+header.top{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;
+  padding-bottom:18px;border-bottom:1px solid var(--line);margin-bottom:22px}
+h1{font-size:23px;margin:0 0 4px;letter-spacing:-.01em;font-weight:650}
+.sub{color:var(--muted);font-size:13.5px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+button,select{font:inherit;color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
+button:hover,select:hover{border-color:var(--accent)}
+button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;border-radius:0;padding:7px 13px}
+.seg button + button{border-left:1px solid var(--line)}
+
+nav.tabs{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:20px;border-bottom:1px solid var(--line)}
+nav.tabs button{border:0;background:none;border-radius:0;padding:9px 14px;color:var(--muted);
+  border-bottom:2px solid transparent;margin-bottom:-1px;font-size:14px}
+nav.tabs button.on{color:var(--ink);border-bottom-color:var(--accent);background:none;font-weight:600}
+
+section.tab{display:none} section.tab.on{display:block}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px 20px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 3px;font-weight:650;letter-spacing:-.005em}
+.card .why{color:var(--muted);font-size:13px;margin:0 0 16px;max-width:76ch}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.kpi .lab{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin-bottom:7px}
+.kpi .val{font-size:26px;font-weight:620;letter-spacing:-.02em;line-height:1.1}
+.kpi .val small{font-size:14px;font-weight:500;color:var(--muted);margin-left:3px}
+.kpi .note{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.35}
+.kpi.flag-warn{border-color:var(--warn)} .kpi.flag-bad{border-color:var(--bad)}
+
+.bars{display:flex;flex-direction:column;gap:9px}
+.row{display:grid;grid-template-columns:1fr;gap:4px}
+.row .rl{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;align-items:baseline}
+.row .rl b{font-weight:600;font-variant-numeric:tabular-nums}
+.row .rl .delta{font-size:12px;font-variant-numeric:tabular-nums}
+.up{color:var(--good)} .down{color:var(--bad)} .flat{color:var(--faint)}
+.track{height:9px;background:var(--line-soft);border-radius:5px;overflow:hidden}
+.fill{height:100%;background:var(--bar);border-radius:5px;transition:width .45s cubic-bezier(.4,0,.2,1)}
+.fill.alt{background:var(--bar-alt)}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:600;
+   position:sticky;top:0;background:var(--panel)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto;max-height:560px;overflow-y:auto}
+
+.pill{display:inline-block;font-size:11px;padding:2px 7px;border-radius:20px;border:1px solid var(--line);
+  color:var(--muted);white-space:nowrap}
+.pill.good{background:var(--good-bg);color:var(--good);border-color:transparent}
+.pill.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
+.pill.bad{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+.pill.accent{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+
+.callout{border-left:3px solid var(--accent);background:var(--accent-soft);padding:12px 15px;
+  border-radius:0 8px 8px 0;font-size:13.5px;margin:0 0 16px;color:var(--ink)}
+.callout.warn{border-left-color:var(--warn);background:var(--warn-bg)}
+.callout b{font-weight:650}
+
+.funnel{display:flex;flex-direction:column;gap:3px}
+.fstep{display:grid;grid-template-columns:minmax(150px,210px) 1fr;gap:14px;align-items:center;padding:7px 0}
+.fstep .fl{font-size:13.5px}
+.fstep .fl small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+.fbar{height:30px;border-radius:5px;background:var(--bar);display:flex;align-items:center;
+  padding:0 10px;color:#fff;font-size:12.5px;font-weight:600;min-width:fit-content;white-space:nowrap;
+  transition:width .45s cubic-bezier(.4,0,.2,1)}
+:root[data-theme="dark"] .fbar,:root:not([data-theme="light"]) .fbar{color:#0f1216}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .fbar{color:#fff}}
+.fbar.fade1{background:color-mix(in srgb,var(--bar) 78%,var(--bar-alt))}
+.fbar.fade2{background:color-mix(in srgb,var(--bar) 48%,var(--bar-alt))}
+.fbar.fade3{background:color-mix(in srgb,var(--bar) 24%,var(--bar-alt))}
+
+.spark{display:block}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:10px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:baseline}
+code{font-family:var(--mono);font-size:12.5px;background:var(--line-soft);padding:1px 5px;border-radius:4px}
+ul.tight{margin:0;padding-left:20px} ul.tight li{margin-bottom:6px}
+.foot{color:var(--faint);font-size:12px;text-align:center;margin-top:30px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div>
+    <h1>Value Management — Time &amp; Impact</h1>
+    <div class="sub" id="subtitle"></div>
+  </div>
+  <div class="controls">
+    <select id="qsel" title="Fiscal quarter"></select>
+    <div class="seg" title="How team time is counted">
+      <button id="mPW" class="on">Person-weeks</button>
+      <button id="mHR">Raw hours</button>
+    </div>
+    <button id="theme" title="Light / dark">◐</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-tab="overview" class="on">Overview</button>
+  <button data-tab="time">Where time goes</button>
+  <button data-tab="people">People</button>
+  <button data-tab="impact">Evidence chain</button>
+  <button data-tab="health">Data health</button>
+</nav>
+
+<section class="tab on" id="tab-overview">
+  <div id="measureNote"></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="grid2">
+    <div class="card">
+      <h2>Effort by work type</h2>
+      <p class="why">Opportunity and Account work is customer-attached. Practice Strategy &amp; Management is everything the team builds for itself and the field.</p>
+      <div class="bars" id="typeBars"></div>
+    </div>
+    <div class="card">
+      <h2>Effort by activity category</h2>
+      <p class="why">The team's own taxonomy, unchanged.</p>
+      <div class="bars" id="catBars"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Reporting volume by week</h2>
+    <p class="why">Hours logged each week, with the number of people who filed anything. Dips are usually reporting gaps, not quiet weeks — read this before reading any trend.</p>
+    <div id="weekChart"></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-time">
+  <div class="callout" id="mixCallout"></div>
+  <div class="card">
+    <h2>Top activities — both lenses side by side</h2>
+    <p class="why">Left bar is the share of effort on the measure you selected. The faint bar behind it is the other measure. Where the two disagree, the activity is concentrated in a few people's logging habits rather than spread across the team.</p>
+    <div class="bars" id="actBars"></div>
+    <div class="legend">
+      <span><i style="background:var(--bar)"></i><span id="lgA"></span></span>
+      <span><i style="background:var(--bar-alt)"></i><span id="lgB"></span></span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Does the ranking survive who you count?</h2>
+    <p class="why">The same share of hours, computed twice: once over everyone, once over only the people who log task by task. Where the two columns are close, the number describes the team. Where they diverge, it describes the form.</p>
+    <div class="scroll"><table id="lensTable"></table></div>
+  </div>
+  <div class="card">
+    <h2>Quarter on quarter</h2>
+    <p class="why">Share of team effort by category, each quarter. Quarters with fewer than four reported weeks are marked — they are stubs at the edge of the export, not real declines.</p>
+    <div class="scroll"><table id="qoqTable"></table></div>
+  </div>
+  <div class="card">
+    <h2>Effort by department</h2>
+    <div class="bars" id="deptBars"></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-people">
+  <div class="callout warn" id="peopleCallout"></div>
+  <div class="card">
+    <h2>Who reports what, and how</h2>
+    <p class="why">Sorted by reporting coverage. <b>Itemised</b> loggers file real tasks; <b>bulk</b> loggers book most of a week to one line, so their hours describe a calendar, not a workload. The strip shows which weeks each person filed.</p>
+    <div class="scroll"><table id="peopleTable"></table></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-impact">
+  <div class="callout warn" id="impactCallout"></div>
+  <div class="card">
+    <h2>From logged time to a closed outcome</h2>
+    <p class="why">Each step keeps only the hours that survive the one before it. The drop between steps two and three is not a performance result — it is the join between the time log and the CRM failing.</p>
+    <div class="funnel" id="funnel"></div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h2>Pipeline touched</h2>
+      <p class="why">Distinct opportunities named in the time log, and their combined value. Counted once each, regardless of how many times they appear.</p>
+      <div class="bars" id="pipeBars"></div>
+    </div>
+    <div class="card">
+      <h2>How the match was made</h2>
+      <p class="why">There is no shared key between the two files. Matches are made on name, then on a deal value unique enough to identify one opportunity.</p>
+      <div class="bars" id="tierBars"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>The opportunities that did match</h2>
+    <p class="why">Every link the pipeline could defend. This is the complete evidence base for any claim connecting the team's time to a won or lost deal.</p>
+    <div class="scroll"><table id="matchTable"></table></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-health">
+  <div class="card">
+    <h2>What the loader did to the files</h2>
+    <div class="scroll"><table id="issueTable"></table></div>
+    <div id="warnBox"></div>
+  </div>
+  <div class="card">
+    <h2>Which fiscal calendar the quarters use</h2>
+    <p class="why">The CRM extract gives a fiscal period but never a close date, so the year-start has to be inferred. For each opportunity the pipeline could match, work should land in or before the quarter the deal closes in. Every candidate year-start was scored on that. The winner is used throughout; change <code>FISCAL_START_MONTH</code> in <code>pipeline.py</code> if the real calendar differs.</p>
+    <div id="fiscalNote"></div>
+    <div class="scroll"><table id="fiscalTable"></table></div>
+  </div>
+  <div class="card">
+    <h2>Known limits of this dashboard</h2>
+    <div id="limits"></div>
+  </div>
+</section>
+
+<div class="foot" id="foot"></div>
+</div>
+
+<script id="payload" type="application/json">{"generated": "01 Nov 2026, 20:04", "files": ["team_hours_export_part1_2026-04-27_to_2026-07-27.csv", "team_hours_export_part2_2026-08-03_to_2026-10-12.csv"], "warnings": [], "issues": [{"label": "Duplicate rows removed", "count": 2}, {"label": "Rows with an unreadable 'Week of'", "count": 0}, {"label": "Rows where the hour columns did not add up", "count": 0}, {"label": "Rows in a still-filling week (excluded from totals)", "count": 17}], "period": {"first_week": "2026-04-27", "last_week": "2026-10-12", "week_count": 24, "partial_weeks": ["2026-10-12"], "thin_weeks": []}, "fiscal": {"start_month": 2, "start_month_name": "February", "evidence": [{"start_month": 2, "month_name": "February", "same_quarter_pct": 46, "work_before_close_pct": 77, "sample": 39}, {"start_month": 1, "month_name": "January", "same_quarter_pct": 44, "work_before_close_pct": 64, "sample": 39}, {"start_month": 3, "month_name": "March", "same_quarter_pct": 33, "work_before_close_pct": 85, "sample": 39}, {"start_month": 4, "month_name": "April", "same_quarter_pct": 28, "work_before_close_pct": 92, "sample": 39}]}, "headline": {"total_hours": 13328, "person_weeks": 434, "people": 25, "weeks": 24, "avg_logged_per_person_week": 30.7, "coverage_pct": 72, "bulk_people": 10, "bulk_hours_pct": 36, "opp_linked_pct": 16.1, "crm_matched_pct": 1.3, "prospect_facing_pct": 9.1, "opps_touched": 307, "opps_in_crm": 343, "opps_matched": 39, "notes_with_own_breakdown": 68, "notes_breakdown_hours": 1484}, "lens_gap": [{"label": "Digital Experience Management", "everyone": 38.8, "itemised": 20.1, "gap": 18.7}, {"label": "Thought Leadership Development", "everyone": 7.0, "itemised": 10.9, "gap": -3.9}, {"label": "Business Case Build", "everyone": 6.8, "itemised": 10.5, "gap": -3.7}, {"label": "Training & Development", "everyone": 8.3, "itemised": 5.5, "gap": 2.8}, {"label": "Strategy Session", "everyone": 4.1, "itemised": 6.3, "gap": -2.2}, {"label": "Case for Change Presentation", "everyone": 3.5, "itemised": 5.5, "gap": -2.0}, {"label": "Event Attendance/Management", "everyone": 3.2, "itemised": 5.1, "gap": -1.9}, {"label": "Content Development", "everyone": 6.2, "itemised": 4.6, "gap": 1.6}, {"label": "Value BoM Development/Maintenance", "everyone": 2.8, "itemised": 4.4, "gap": -1.6}, {"label": "Value Enablement", "everyone": 2.7, "itemised": 4.2, "gap": -1.5}], "period_funnel": {"all_hours": 13327.6, "opp_linked_hours": 2146.8, "crm_matched_hours": 168.8, "won_hours": 76.0, "opps_touched": 307, "opps_matched": 39, "opps_won": 13, "value_touched": 51493300, "value_matched": 4205400, "value_won": 1584500}, "period_tables": {"by_category_hours": [{"label": "VM Practice Strategy & Management", "value": 10351.6, "pct": 77.7, "bulk_pct": 46.0}, {"label": "Global Digital Value & Strategy", "value": 2282.75, "pct": 17.1, "bulk_pct": 1.0}, {"label": "Value Realization", "value": 444.5, "pct": 3.3, "bulk_pct": 0.0}, {"label": "Value Management", "value": 228.75, "pct": 1.7, "bulk_pct": 1.0}, {"label": "Baseline Assessment", "value": 20.0, "pct": 0.2, "bulk_pct": 0.0}], "by_category_pw": [{"label": "VM Practice Strategy & Management", "value": 330.49, "pct": 76.2, "bulk_pct": 41.0}, {"label": "Global Digital Value & Strategy", "value": 79.5, "pct": 18.3, "bulk_pct": 1.0}, {"label": "Value Realization", "value": 16.2, "pct": 3.7, "bulk_pct": 0.0}, {"label": "Value Management", "value": 7.06, "pct": 1.6, "bulk_pct": 1.0}, {"label": "Baseline Assessment", "value": 0.74, "pct": 0.2, "bulk_pct": 0.0}], "by_activity_hours": [{"label": "Digital Experience Management", "value": 5176.75, "pct": 38.8, "bulk_pct": 67.0}, {"label": "Training & Development", "value": 1112.5, "pct": 8.3, "bulk_pct": 58.0}, {"label": "Thought Leadership Development", "value": 930.1, "pct": 7.0, "bulk_pct": 0.0}, {"label": "Business Case Build", "value": 909.65, "pct": 6.8, "bulk_pct": 2.0}, {"label": "Content Development", "value": 823.0, "pct": 6.2, "bulk_pct": 52.0}, {"label": "Strategy Session", "value": 540.75, "pct": 4.1, "bulk_pct": 1.0}, {"label": "Case for Change Presentation", "value": 470.25, "pct": 3.5, "bulk_pct": 0.0}, {"label": "Event Attendance/Management", "value": 430.25, "pct": 3.2, "bulk_pct": 0.0}, {"label": "Value BoM Development/Maintenance", "value": 377.5, "pct": 2.8, "bulk_pct": 0.0}, {"label": "Value Enablement", "value": 363.5, "pct": 2.7, "bulk_pct": 1.0}, {"label": "Data Strategy/Management", "value": 358.5, "pct": 2.7, "bulk_pct": 49.0}, {"label": "NOL Advisory/Support", "value": 286.0, "pct": 2.1, "bulk_pct": 0.0}], "by_activity_pw": [{"label": "Digital Experience Management", "value": 144.2, "pct": 33.2, "bulk_pct": 66.0}, {"label": "Training & Development", "value": 40.74, "pct": 9.4, "bulk_pct": 51.0}, {"label": "Thought Leadership Development", "value": 31.33, "pct": 7.2, "bulk_pct": 0.0}, {"label": "Business Case Build", "value": 30.23, "pct": 7.0, "bulk_pct": 2.0}, {"label": "Content Development", "value": 26.25, "pct": 6.0, "bulk_pct": 44.0}, {"label": "Strategy Session", "value": 21.22, "pct": 4.9, "bulk_pct": 0.0}, {"label": "Value Enablement", "value": 17.23, "pct": 4.0, "bulk_pct": 1.0}, {"label": "Value BoM Development/Maintenance", "value": 17.03, "pct": 3.9, "bulk_pct": 0.0}, {"label": "Case for Change Presentation", "value": 14.75, "pct": 3.4, "bulk_pct": 0.0}, {"label": "Event Attendance/Management", "value": 12.54, "pct": 2.9, "bulk_pct": 0.0}, {"label": "NOL Advisory/Support", "value": 12.29, "pct": 2.8, "bulk_pct": 0.0}, {"label": "Data Strategy/Management", "value": 9.95, "pct": 2.3, "bulk_pct": 52.0}], "by_type_hours": [{"label": "Practice Strategy & Management", "value": 10351.6, "pct": 77.7, "bulk_pct": 46.0}, {"label": "Opportunity", "value": 2146.75, "pct": 16.1, "bulk_pct": 1.0}, {"label": "Account", "value": 829.25, "pct": 6.2, "bulk_pct": 1.0}], "by_type_pw": [{"label": "Practice Strategy & Management", "value": 330.49, "pct": 76.2, "bulk_pct": 41.0}, {"label": "Opportunity", "value": 74.51, "pct": 17.2, "bulk_pct": 0.0}, {"label": "Account", "value": 28.99, "pct": 6.7, "bulk_pct": 1.0}], "by_department_pw": [{"label": "VM Digital COE", "value": 224.0, "pct": 51.6}, {"label": "Value Insights & Thought Leadership, Value Management", "value": 144.0, "pct": 33.2}, {"label": "Global Digital Value Solution Center, Value Management", "value": 41.0, "pct": 9.4}, {"label": "Value Management Readiness", "value": 14.0, "pct": 3.2}, {"label": "Global Functional Revenue Operations", "value": 11.0, "pct": 2.5}]}, "quarters": {"FY27 Q1": {"label": "FY27 Q1", "weeks": ["2026-04-27"], "week_count": 1, "people": ["Carmen Okafor", "Celeste Ingram", "Diego Varga", "Gabriel Ivanova", "Gemma Rowan", "Jasper Eastman", "Joaquin Whitlock", "Jonas Ashby", "Katharina Fenwick", "Matthias Quillan", "Olivia Lindqvist", "Priya Wróbel", "Tara Abernathy", "Xavier Mendez", "Yara Larkin", "Zoe Ellery"], "person_count": 16, "hours": 557.2, "person_weeks": 16.0, "hours_per_person_week": 34.8, "prospect_facing_pct": 8.7, "presented_pct": 8.7, "funnel": {"all_hours": 557.2, "opp_linked_hours": 54.2, "crm_matched_hours": 27.5, "won_hours": 10.5, "opps_touched": 13, "opps_matched": 8, "opps_won": 4, "value_touched": 1985700, "value_matched": 1255400, "value_won": 637500}, "by_category_hours": [{"label": "VM Practice Strategy & Management", "value": 472.5, "pct": 84.8, "bulk_pct": 46.0}, {"label": "Global Digital Value & Strategy", "value": 54.25, "pct": 9.7, "bulk_pct": 0.0}, {"label": "Value Realization", "value": 22.0, "pct": 3.9, "bulk_pct": 0.0}, {"label": "Baseline Assessment", "value": 8.5, "pct": 1.5, "bulk_pct": 0.0}], "by_category_pw": [{"label": "VM Practice Strategy & Management", "value": 12.75, "pct": 79.7, "bulk_pct": 39.0}, {"label": "Global Digital Value & Strategy", "value": 2.29, "pct": 14.3, "bulk_pct": 0.0}, {"label": "Value Realization", "value": 0.64, "pct": 4.0, "bulk_pct": 0.0}, {"label": "Baseline Assessment", "value": 0.31, "pct": 2.0, "bulk_pct": 0.0}], "by_activity_hours": [{"label": "Digital Experience Management", "value": 265.0, "pct": 47.6, "bulk_pct": 70.0}, {"label": "Content Development", "value": 49.0, "pct": 8.8, "bulk_pct": 41.0}, {"label": "Thought Leadership Development", "value": 40.0, "pct": 7.2, "bulk_pct": 0.0}, {"label": "Data Strategy/Management", "value": 37.0, "pct": 6.6, "bulk_pct": 27.0}, {"label": "Case for Change Presentation", "value": 24.0, "pct": 4.3, "bulk_pct": 0.0}, {"label": "Value Enablement", "value": 20.5, "pct": 3.7, "bulk_pct": 0.0}, {"label": "Strategy Session", "value": 19.0, "pct": 3.4, "bulk_pct": 0.0}, {"label": "Training & Development", "value": 18.0, "pct": 3.2, "bulk_pct": 0.0}, {"label": "Business Case Build", "value": 16.0, "pct": 2.9, "bulk_pct": 0.0}, {"label": "Event Attendance/Management", "value": 15.0, "pct": 2.7, "bulk_pct": 0.0}, {"label": "NOL Advisory/Support", "value": 9.5, "pct": 1.7, "bulk_pct": 0.0}, {"label": "Value BoM Development/Maintenance", "value": 9.0, "pct": 1.6, "bulk_pct": 0.0}], "by_activity_pw": [{"label": "Digital Experience Management", "value": 6.18, "pct": 38.6, "bulk_pct": 69.0}, {"label": "Content Development", "value": 1.58, "pct": 9.9, "bulk_pct": 32.0}, {"label": "Data Strategy/Management", "value": 1.04, "pct": 6.5, "bulk_pct": 24.0}, {"label": "Case for Change Presentation", "value": 0.86, "pct": 5.4, "bulk_pct": 0.0}, {"label": "Thought Leadership Development", "value": 0.8, "pct": 5.0, "bulk_pct": 0.0}, {"label": "Business Case Build", "value": 0.79, "pct": 4.9, "bulk_pct": 0.0}, {"label": "Value Enablement", "value": 0.78, "pct": 4.9, "bulk_pct": 0.0}, {"label": "Strategy Session", "value": 0.73, "pct": 4.6, "bulk_pct": 0.0}, {"label": "Training & Development", "value": 0.7, "pct": 4.4, "bulk_pct": 0.0}, {"label": "NOL Advisory/Support", "value": 0.43, "pct": 2.7, "bulk_pct": 0.0}, {"label": "Value BoM Development/Maintenance", "value": 0.39, "pct": 2.4, "bulk_pct": 0.0}, {"label": "Event Attendance/Management", "value": 0.38, "pct": 2.4, "bulk_pct": 0.0}], "by_type_hours": [{"label": "Practice Strategy & Management", "value": 472.5, "pct": 84.8, "bulk_pct": 46.0}, {"label": "Opportunity", "value": 54.25, "pct": 9.7, "bulk_pct": 0.0}, {"label": "Account", "value": 30.5, "pct": 5.5, "bulk_pct": 0.0}], "by_type_pw": [{"label": "Practice Strategy & Management", "value": 12.75, "pct": 79.7, "bulk_pct": 39.0}, {"label": "Opportunity", "value": 2.29, "pct": 14.3, "bulk_pct": 0.0}, {"label": "Account", "value": 0.95, "pct": 6.0, "bulk_pct": 0.0}], "by_department_pw": [{"label": "VM Digital COE", "value": 6.0, "pct": 37.5}, {"label": "Value Insights & Thought Leadership, Value Management", "value": 5.0, "pct": 31.3}, {"label": "Global Digital Value Solution Center, Value Management", "value": 3.0, "pct": 18.7}, {"label": "Value Management Readiness", "value": 1.0, "pct": 6.2}, {"label": "Global Functional Revenue Operations", "value": 1.0, "pct": 6.2}], "by_activity_itemised": [{"label": "Digital Experience Management", "value": 1.93, "pct": 17.5}, {"label": "Content Development", "value": 1.08, "pct": 9.8}, {"label": "Case for Change Presentation", "value": 0.86, "pct": 7.8}, {"label": "Thought Leadership Development", "value": 0.8, "pct": 7.3}, {"label": "Business Case Build", "value": 0.79, "pct": 7.2}, {"label": "Data Strategy/Management", "value": 0.79, "pct": 7.1}, {"label": "Value Enablement", "value": 0.78, "pct": 7.1}, {"label": "Strategy Session", "value": 0.73, "pct": 6.7}, {"label": "Training & Development", "value": 0.7, "pct": 6.4}, {"label": "NOL Advisory/Support", "value": 0.43, "pct": 3.9}, {"label": "Value BoM Development/Maintenance", "value": 0.39, "pct": 3.5}, {"label": "Event Attendance/Management", "value": 0.38, "pct": 3.5}]}, "FY27 Q2": {"label": "FY27 Q2", "weeks": ["2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27"], "week_count": 13, "people": ["Bastian Yardley", "Carmen Okafor", "Celeste Ingram", "Diego Varga", "Eliza Hollis", "Gabriel Ivanova", "Gemma Rowan", "Henrik Delacroix", "Jasper Eastman", "Joaquin Whitlock", "Jonas Ashby", "Katharina Fenwick", "Matthias Quillan", "Olivia Lindqvist", "Priya Wróbel", "Rosa Navarro", "Samuel Quarry", "Tara Abernathy", "Tobias Ulrich", "Xavier Mendez", "Yara Larkin", "Zoe Ellery"], "person_count": 22, "hours": 7389.7, "person_weeks": 247.0, "hours_per_person_week": 29.9, "prospect_facing_pct": 9.5, "presented_pct": 9.5, "funnel": {"all_hours": 7389.7, "opp_linked_hours": 1187.0, "crm_matched_hours": 83.8, "won_hours": 32.0, "opps_touched": 184, "opps_matched": 25, "opps_won": 8, "value_touched": 28802900, "value_matched": 2419200, "value_won": 858400}, "by_category_hours": [{"label": "VM Practice Strategy & Management", "value": 5715.75, "pct": 77.3, "bulk_pct": 44.0}, {"label": "Global Digital Value & Strategy", "value": 1232.95, "pct": 16.7, "bulk_pct": 0.0}, {"label": "Value Realization", "value": 277.0, "pct": 3.7, "bulk_pct": 0.0}, {"label": "Value Management", "value": 156.0, "pct": 2.1, "bulk_pct": 2.0}, {"label": "Baseline Assessment", "value": 8.0, "pct": 0.1, "bulk_pct": 0.0}], "by_category_pw": [{"label": "VM Practice Strategy & Management", "value": 188.7, "pct": 76.4, "bulk_pct": 38.0}, {"label": "Global Digital Value & Strategy", "value": 43.12, "pct": 17.5, "bulk_pct": 0.0}, {"label": "Value Realization", "value": 10.37, "pct": 4.2, "bulk_pct": 0.0}, {"label": "Value Management", "value": 4.49, "pct": 1.8, "bulk_pct": 2.0}, {"label": "Baseline Assessment", "value": 0.32, "pct": 0.1, "bulk_pct": 0.0}], "by_activity_hours": [{"label": "Digital Experience Management", "value": 2921.0, "pct": 39.5, "bulk_pct": 70.0}, {"label": "Thought Leadership Development", "value": 654.5, "pct": 8.9, "bulk_pct": 0.0}, {"label": "Content Development", "value": 553.5, "pct": 7.5, "bulk_pct": 46.0}, {"label": "Business Case Build", "value": 521.0, "pct": 7.1, "bulk_pct": 0.0}, {"label": "Strategy Session", "value": 339.25, "pct": 4.6, "bulk_pct": 0.0}, {"label": "Data Strategy/Management", "value": 258.5, "pct": 3.5, "bulk_pct": 64.0}, {"label": "Value Enablement", "value": 231.5, "pct": 3.1, "bulk_pct": 2.0}, {"label": "Training & Development", "value": 218.0, "pct": 3.0, "bulk_pct": 2.0}, {"label": "Case for Change Presentation", "value": 217.75, "pct": 2.9, "bulk_pct": 0.0}, {"label": "Event Attendance/Management", "value": 215.25, "pct": 2.9, "bulk_pct": 0.0}, {"label": "Value BoM Development/Maintenance", "value": 202.0, "pct": 2.7, "bulk_pct": 0.0}, {"label": "NOL Advisory/Support", "value": 170.0, "pct": 2.3, "bulk_pct": 0.0}], "by_activity_pw": [{"label": "Digital Experience Management", "value": 86.18, "pct": 34.9, "bulk_pct": 67.0}, {"label": "Thought Leadership Development", "value": 20.9, "pct": 8.5, "bulk_pct": 0.0}, {"label": "Content Development", "value": 18.73, "pct": 7.6, "bulk_pct": 39.0}, {"label": "Business Case Build", "value": 17.53, "pct": 7.1, "bulk_pct": 0.0}, {"label": "Strategy Session", "value": 13.02, "pct": 5.3, "bulk_pct": 0.0}, {"label": "Value Enablement", "value": 11.13, "pct": 4.5, "bulk_pct": 1.0}, {"label": "Training & Development", "value": 9.63, "pct": 3.9, "bulk_pct": 11.0}, {"label": "Value BoM Development/Maintenance", "value": 8.66, "pct": 3.5, "bulk_pct": 0.0}, {"label": "Data Strategy/Management", "value": 7.91, "pct": 3.2, "bulk_pct": 62.0}, {"label": "NOL Advisory/Support", "value": 7.65, "pct": 3.1, "bulk_pct": 0.0}, {"label": "Case for Change Presentation", "value": 7.29, "pct": 3.0, "bulk_pct": 0.0}, {"label": "Event Attendance/Management", "value": 6.53, "pct": 2.6, "bulk_pct": 0.0}], "by_type_hours": [{"label": "Practice Strategy & Management", "value": 5715.75, "pct": 77.3, "bulk_pct": 44.0}, {"label": "Opportunity", "value": 1186.95, "pct": 16.1, "bulk_pct": 0.0}, {"label": "Account", "value": 487.0, "pct": 6.6, "bulk_pct": 0.0}], "by_type_pw": [{"label": "Practice Strategy & Management", "value": 188.7, "pct": 76.4, "bulk_pct": 38.0}, {"label": "Opportunity", "value": 40.74, "pct": 16.5, "bulk_pct": 0.0}, {"label": "Account", "value": 17.56, "pct": 7.1, "bulk_pct": 0.0}], "by_department_pw": [{"label": "VM Digital COE", "value": 116.0, "pct": 47.0}, {"label": "Value Insights & Thought Leadership, Value Management", "value": 81.0, "pct": 32.8}, {"label": "Global Digital Value Solution Center, Value Management", "value": 28.0, "pct": 11.3}, {"label": "Value Management Readiness", "value": 12.0, "pct": 4.9}, {"label": "Global Functional Revenue Operations", "value": 10.0, "pct": 4.0}], "by_activity_itemised": [{"label": "Digital Experience Management", "value": 28.67, "pct": 16.4}, {"label": "Thought Leadership Development", "value": 20.9, "pct": 11.9}, {"label": "Business Case Build", "value": 17.53, "pct": 10.0}, {"label": "Strategy Session", "value": 13.02, "pct": 7.4}, {"label": "Content Development", "value": 11.42, "pct": 6.5}, {"label": "Value Enablement", "value": 11.03, "pct": 6.3}, {"label": "Value BoM Development/Maintenance", "value": 8.66, "pct": 4.9}, {"label": "Training & Development", "value": 8.54, "pct": 4.9}, {"label": "NOL Advisory/Support", "value": 7.65, "pct": 4.4}, {"label": "Case for Change Presentation", "value": 7.29, "pct": 4.2}, {"label": "Event Attendance/Management", "value": 6.53, "pct": 3.7}, {"label": "Self-serve Business Case Support", "value": 4.73, "pct": 2.7}]}, "FY27 Q3": {"label": "FY27 Q3", "weeks": ["2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"], "week_count": 10, "people": ["Bastian Yardley", "Celeste Ingram", "Diego Varga", "Elena Danforth", "Eliza Hollis", "Gabriel Ivanova", "Gemma Rowan", "Henrik Delacroix", "Jasper Eastman", "Joaquin Whitlock", "Jonas Ashby", "Katharina Fenwick", "Matthias Quillan", "Mira Pemberton", "Priya Wróbel", "Rosa Navarro", "Samuel Quarry", "Tara Abernathy", "Uma Iverson", "Xavier Mendez", "Yara Larkin"], "person_count": 21, "hours": 5380.6, "person_weeks": 171.0, "hours_per_person_week": 31.5, "prospect_facing_pct": 8.5, "presented_pct": 8.5, "funnel": {"all_hours": 5380.6, "opp_linked_hours": 905.5, "crm_matched_hours": 57.5, "won_hours": 33.5, "opps_touched": 138, "opps_matched": 10, "opps_won": 3, "value_touched": 26402300, "value_matched": 756300, "value_won": 232400}, "by_category_hours": [{"label": "VM Practice Strategy & Management", "value": 4163.35, "pct": 77.4, "bulk_pct": 49.0}, {"label": "Global Digital Value & Strategy", "value": 995.55, "pct": 18.5, "bulk_pct": 2.0}, {"label": "Value Realization", "value": 145.5, "pct": 2.7, "bulk_pct": 0.0}, {"label": "Value Management", "value": 72.75, "pct": 1.4, "bulk_pct": 0.0}, {"label": "Baseline Assessment", "value": 3.5, "pct": 0.1, "bulk_pct": 0.0}], "by_category_pw": [{"label": "VM Practice Strategy & Management", "value": 129.04, "pct": 75.5, "bulk_pct": 45.0}, {"label": "Global Digital Value & Strategy", "value": 34.08, "pct": 19.9, "bulk_pct": 2.0}, {"label": "Value Realization", "value": 5.2, "pct": 3.0, "bulk_pct": 0.0}, {"label": "Value Management", "value": 2.58, "pct": 1.5, "bulk_pct": 0.0}, {"label": "Baseline Assessment", "value": 0.11, "pct": 0.1, "bulk_pct": 0.0}], "by_activity_hours": [{"label": "Digital Experience Management", "value": 1990.75, "pct": 37.0, "bulk_pct": 62.0}, {"label": "Training & Development", "value": 876.5, "pct": 16.3, "bulk_pct": 73.0}, {"label": "Business Case Build", "value": 372.65, "pct": 6.9, "bulk_pct": 4.0}, {"label": "Thought Leadership Development", "value": 235.6, "pct": 4.4, "bulk_pct": 0.0}, {"label": "Case for Change Presentation", "value": 228.5, "pct": 4.2, "bulk_pct": 0.0}, {"label": "Content Development", "value": 220.5, "pct": 4.1, "bulk_pct": 70.0}, {"label": "Event Attendance/Management", "value": 200.0, "pct": 3.7, "bulk_pct": 0.0}, {"label": "Strategy Session", "value": 182.5, "pct": 3.4, "bulk_pct": 2.0}, {"label": "Value BoM Development/Maintenance", "value": 166.5, "pct": 3.1, "bulk_pct": 0.0}, {"label": "Value Enablement", "value": 111.5, "pct": 2.1, "bulk_pct": 0.0}, {"label": "NOL Advisory/Support", "value": 106.5, "pct": 2.0, "bulk_pct": 0.0}, {"label": "Self-serve Business Case Support", "value": 98.9, "pct": 1.8, "bulk_pct": 0.0}], "by_activity_pw": [{"label": "Digital Experience Management", "value": 51.84, "pct": 30.3, "bulk_pct": 66.0}, {"label": "Training & Development", "value": 30.41, "pct": 17.8, "bulk_pct": 65.0}, {"label": "Business Case Build", "value": 11.92, "pct": 7.0, "bulk_pct": 4.0}, {"label": "Thought Leadership Development", "value": 9.63, "pct": 5.6, "bulk_pct": 0.0}, {"label": "Value BoM Development/Maintenance", "value": 7.99, "pct": 4.7, "bulk_pct": 0.0}, {"label": "Strategy Session", "value": 7.48, "pct": 4.4, "bulk_pct": 1.0}, {"label": "Case for Change Presentation", "value": 6.59, "pct": 3.9, "bulk_pct": 0.0}, {"label": "Content Development", "value": 5.93, "pct": 3.5, "bulk_pct": 65.0}, {"label": "Event Attendance/Management", "value": 5.63, "pct": 3.3, "bulk_pct": 0.0}, {"label": "Value Enablement", "value": 5.33, "pct": 3.1, "bulk_pct": 0.0}, {"label": "NOL Advisory/Support", "value": 4.21, "pct": 2.5, "bulk_pct": 0.0}, {"label": "Self-serve Business Case Support", "value": 4.19, "pct": 2.5, "bulk_pct": 0.0}], "by_type_hours": [{"label": "Practice Strategy & Management", "value": 4163.35, "pct": 77.4, "bulk_pct": 49.0}, {"label": "Opportunity", "value": 905.55, "pct": 16.8, "bulk_pct": 1.0}, {"label": "Account", "value": 311.75, "pct": 5.8, "bulk_pct": 3.0}], "by_type_pw": [{"label": "Practice Strategy & Management", "value": 129.04, "pct": 75.5, "bulk_pct": 45.0}, {"label": "Opportunity", "value": 31.48, "pct": 18.4, "bulk_pct": 1.0}, {"label": "Account", "value": 10.48, "pct": 6.1, "bulk_pct": 3.0}], "by_department_pw": [{"label": "VM Digital COE", "value": 102.0, "pct": 59.6}, {"label": "Value Insights & Thought Leadership, Value Management", "value": 58.0, "pct": 33.9}, {"label": "Global Digital Value Solution Center, Value Management", "value": 10.0, "pct": 5.8}, {"label": "Value Management Readiness", "value": 1.0, "pct": 0.6}], "by_activity_itemised": [{"label": "Digital Experience Management", "value": 17.84, "pct": 15.9}, {"label": "Business Case Build", "value": 11.45, "pct": 10.2}, {"label": "Training & Development", "value": 10.57, "pct": 9.4}, {"label": "Thought Leadership Development", "value": 9.63, "pct": 8.6}, {"label": "Value BoM Development/Maintenance", "value": 7.99, "pct": 7.1}, {"label": "Strategy Session", "value": 7.38, "pct": 6.6}, {"label": "Case for Change Presentation", "value": 6.59, "pct": 5.9}, {"label": "Event Attendance/Management", "value": 5.63, "pct": 5.0}, {"label": "Value Enablement", "value": 5.33, "pct": 4.8}, {"label": "NOL Advisory/Support", "value": 4.21, "pct": 3.8}, {"label": "Self-serve Business Case Support", "value": 4.19, "pct": 3.7}, {"label": "Value Based Discovery", "value": 3.7, "pct": 3.3}]}}, "weekly": [{"week": "2026-04-27", "hours": 557.2, "rows": 105, "people": 16, "partial": false, "thin": false}, {"week": "2026-05-04", "hours": 684.0, "rows": 134, "people": 20, "partial": false, "thin": false}, {"week": "2026-05-11", "hours": 629.0, "rows": 116, "people": 20, "partial": false, "thin": false}, {"week": "2026-05-18", "hours": 544.0, "rows": 99, "people": 21, "partial": false, "thin": false}, {"week": "2026-05-25", "hours": 543.0, "rows": 122, "people": 20, "partial": false, "thin": false}, {"week": "2026-06-01", "hours": 537.8, "rows": 135, "people": 19, "partial": false, "thin": false}, {"week": "2026-06-08", "hours": 704.3, "rows": 138, "people": 22, "partial": false, "thin": false}, {"week": "2026-06-15", "hours": 377.5, "rows": 77, "people": 20, "partial": false, "thin": false}, {"week": "2026-06-22", "hours": 685.8, "rows": 113, "people": 21, "partial": false, "thin": false}, {"week": "2026-06-29", "hours": 614.1, "rows": 134, "people": 20, "partial": false, "thin": false}, {"week": "2026-07-06", "hours": 543.5, "rows": 113, "people": 16, "partial": false, "thin": false}, {"week": "2026-07-13", "hours": 543.5, "rows": 148, "people": 17, "partial": false, "thin": false}, {"week": "2026-07-20", "hours": 486.2, "rows": 112, "people": 16, "partial": false, "thin": false}, {"week": "2026-07-27", "hours": 497.0, "rows": 112, "people": 15, "partial": false, "thin": false}, {"week": "2026-08-03", "hours": 481.0, "rows": 78, "people": 16, "partial": false, "thin": false}, {"week": "2026-08-10", "hours": 418.0, "rows": 98, "people": 14, "partial": false, "thin": false}, {"week": "2026-08-17", "hours": 557.4, "rows": 109, "people": 17, "partial": false, "thin": false}, {"week": "2026-08-24", "hours": 628.5, "rows": 100, "people": 19, "partial": false, "thin": false}, {"week": "2026-08-31", "hours": 353.2, "rows": 57, "people": 15, "partial": false, "thin": false}, {"week": "2026-09-07", "hours": 584.5, "rows": 99, "people": 18, "partial": false, "thin": false}, {"week": "2026-09-14", "hours": 667.8, "rows": 144, "people": 20, "partial": false, "thin": false}, {"week": "2026-09-21", "hours": 571.5, "rows": 152, "people": 17, "partial": false, "thin": false}, {"week": "2026-09-28", "hours": 587.0, "rows": 102, "people": 18, "partial": false, "thin": false}, {"week": "2026-10-05", "hours": 531.8, "rows": 104, "people": 17, "partial": false, "thin": false}, {"week": "2026-10-12", "hours": 49.2, "rows": 17, "people": 2, "partial": true, "thin": false}], "people": [{"name": "Yara Larkin", "department": "VM Digital COE", "manager": "Nikolai Grieve", "tenure": 6.0, "weeks_reported": 23, "weeks_possible": 24, "coverage_pct": 96, "total_hours": 918.5, "median_week_hours": 41.5, "max_week_hours": 60.8, "rows_per_week": 2, "median_row_hours": 2.0, "style": "itemised", "person_weeks": 23.0, "top_activities": [{"label": "Digital Experience Management", "value": 19.26, "pct": 83.7}, {"label": "Self-serve Business Case Support", "value": 2.27, "pct": 9.9}, {"label": "Event Attendance/Management", "value": 1.0, "pct": 4.3}], "prospect_facing_pct": 1.0, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Katharina Fenwick", "department": "VM Digital COE", "manager": "Clara Zeller", "tenure": 3.0, "weeks_reported": 24, "weeks_possible": 24, "coverage_pct": 100, "total_hours": 840.0, "median_week_hours": 40.0, "max_week_hours": 40.0, "rows_per_week": 1.0, "median_row_hours": 40.0, "style": "bulk", "person_weeks": 24.0, "top_activities": [{"label": "Digital Experience Management", "value": 24.0, "pct": 100.0}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Joaquin Whitlock", "department": "VM Digital COE", "manager": "Nikolai Grieve", "tenure": 3.0, "weeks_reported": 20, "weeks_possible": 24, "coverage_pct": 83, "total_hours": 796.5, "median_week_hours": 37.5, "max_week_hours": 104.0, "rows_per_week": 10.5, "median_row_hours": 3.0, "style": "itemised", "person_weeks": 20.0, "top_activities": [{"label": "Business Case Build", "value": 7.94, "pct": 39.7}, {"label": "Case for Change Presentation", "value": 3.88, "pct": 19.4}, {"label": "Strategy Session", "value": 2.25, "pct": 11.3}], "prospect_facing_pct": 27.8, "weeks_by_week": ["2026-04-27", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Diego Varga", "department": "Value Insights & Thought Leadership, Value Management", "manager": "Esme Ramsey", "tenure": 2.0, "weeks_reported": 23, "weeks_possible": 24, "coverage_pct": 96, "total_hours": 792.0, "median_week_hours": 40.0, "max_week_hours": 50.0, "rows_per_week": 2, "median_row_hours": 20.0, "style": "bulk", "person_weeks": 23.0, "top_activities": [{"label": "Content Development", "value": 11.66, "pct": 50.7}, {"label": "Digital Experience Management", "value": 8.09, "pct": 35.2}, {"label": "Content Management", "value": 1.75, "pct": 7.6}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Xavier Mendez", "department": "Global Digital Value Solution Center, Value Management", "manager": "Hugo Juarez", "tenure": 7.0, "weeks_reported": 24, "weeks_possible": 24, "coverage_pct": 100, "total_hours": 788.8, "median_week_hours": 32.2, "max_week_hours": 54.2, "rows_per_week": 7.0, "median_row_hours": 1.0, "style": "itemised", "person_weeks": 24.0, "top_activities": [{"label": "Digital Experience Management", "value": 11.94, "pct": 49.7}, {"label": "Event Attendance/Management", "value": 6.74, "pct": 28.1}, {"label": "Value Collateral", "value": 2.39, "pct": 10.0}], "prospect_facing_pct": 2.8, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Priya Wróbel", "department": "VM Digital COE", "manager": "Clara Zeller", "tenure": 4.0, "weeks_reported": 22, "weeks_possible": 24, "coverage_pct": 92, "total_hours": 784.0, "median_week_hours": 40.0, "max_week_hours": 40.0, "rows_per_week": 1.0, "median_row_hours": 40.0, "style": "bulk", "person_weeks": 22.0, "top_activities": [{"label": "Digital Experience Management", "value": 22.0, "pct": 100.0}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Rosa Navarro", "department": "VM Digital COE", "manager": "Clara Zeller", "tenure": 1.0, "weeks_reported": 21, "weeks_possible": 24, "coverage_pct": 88, "total_hours": 776.0, "median_week_hours": 40.0, "max_week_hours": 40.0, "rows_per_week": 1, "median_row_hours": 40.0, "style": "bulk", "person_weeks": 21.0, "top_activities": [{"label": "Digital Experience Management", "value": 21.0, "pct": 100.0}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Gemma Rowan", "department": "Value Insights & Thought Leadership, Value Management", "manager": "Esme Ramsey", "tenure": 5.0, "weeks_reported": 20, "weeks_possible": 24, "coverage_pct": 83, "total_hours": 693.0, "median_week_hours": 29.0, "max_week_hours": 100.0, "rows_per_week": 3.0, "median_row_hours": 3.0, "style": "itemised", "person_weeks": 20.0, "top_activities": [{"label": "Digital Experience Management", "value": 11.41, "pct": 57.0}, {"label": "NOL Advisory/Support", "value": 1.69, "pct": 8.4}, {"label": "Value BoM Development/Maintenance", "value": 1.42, "pct": 7.1}], "prospect_facing_pct": 9.5, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-17", "2026-08-24", "2026-09-07", "2026-09-14", "2026-09-28", "2026-10-05"]}, {"name": "Matthias Quillan", "department": "VM Digital COE", "manager": "Umar Kessler", "tenure": 1.0, "weeks_reported": 24, "weeks_possible": 24, "coverage_pct": 100, "total_hours": 612.9, "median_week_hours": 24.6, "max_week_hours": 46.5, "rows_per_week": 12.0, "median_row_hours": 2.0, "style": "itemised", "person_weeks": 24.0, "top_activities": [{"label": "Business Case Build", "value": 7.61, "pct": 31.7}, {"label": "Strategy Session", "value": 4.47, "pct": 18.6}, {"label": "Thought Leadership Development", "value": 3.0, "pct": 12.5}], "prospect_facing_pct": 21.9, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Tara Abernathy", "department": "Value Insights & Thought Leadership, Value Management", "manager": "Esme Ramsey", "tenure": 4.0, "weeks_reported": 23, "weeks_possible": 24, "coverage_pct": 96, "total_hours": 605.5, "median_week_hours": 27.0, "max_week_hours": 34.5, "rows_per_week": 21, "median_row_hours": 1.0, "style": "itemised", "person_weeks": 23.0, "top_activities": [{"label": "Thought Leadership Development", "value": 4.18, "pct": 18.2}, {"label": "Strategy Session", "value": 2.96, "pct": 12.9}, {"label": "Value Enablement", "value": 2.08, "pct": 9.1}], "prospect_facing_pct": 14.7, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28"]}, {"name": "Gabriel Ivanova", "department": "VM Digital COE", "manager": "Nikolai Grieve", "tenure": 2.0, "weeks_reported": 20, "weeks_possible": 24, "coverage_pct": 83, "total_hours": 587.0, "median_week_hours": 28.0, "max_week_hours": 55.0, "rows_per_week": 4.5, "median_row_hours": 5.0, "style": "itemised", "person_weeks": 20.0, "top_activities": [{"label": "Business Case Build", "value": 5.19, "pct": 26.0}, {"label": "Training & Development", "value": 4.03, "pct": 20.1}, {"label": "Strategy Session", "value": 3.71, "pct": 18.6}], "prospect_facing_pct": 10.1, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Jonas Ashby", "department": "Value Insights & Thought Leadership, Value Management", "manager": "Esme Ramsey", "tenure": 2.0, "weeks_reported": 22, "weeks_possible": 24, "coverage_pct": 92, "total_hours": 567.0, "median_week_hours": 25.2, "max_week_hours": 48.2, "rows_per_week": 17.0, "median_row_hours": 1.0, "style": "itemised", "person_weeks": 22.0, "top_activities": [{"label": "Content Development", "value": 2.98, "pct": 13.5}, {"label": "NOL Advisory/Support", "value": 2.6, "pct": 11.8}, {"label": "Value BoM Development/Maintenance", "value": 2.41, "pct": 11.0}], "prospect_facing_pct": 11.6, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Bastian Yardley", "department": "VM Digital COE", "manager": "Nikolai Grieve", "tenure": 5.0, "weeks_reported": 21, "weeks_possible": 24, "coverage_pct": 88, "total_hours": 546.0, "median_week_hours": 25.0, "max_week_hours": 66.0, "rows_per_week": 4, "median_row_hours": 4.0, "style": "itemised", "person_weeks": 21.0, "top_activities": [{"label": "Business Case Build", "value": 3.92, "pct": 18.7}, {"label": "Value Based Discovery", "value": 3.29, "pct": 15.7}, {"label": "Strategy Session", "value": 3.26, "pct": 15.5}], "prospect_facing_pct": 46.7, "weeks_by_week": ["2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Eliza Hollis", "department": "Value Insights & Thought Leadership, Value Management", "manager": "Esme Ramsey", "tenure": 6.0, "weeks_reported": 18, "weeks_possible": 24, "coverage_pct": 75, "total_hours": 480.5, "median_week_hours": 27.0, "max_week_hours": 37.0, "rows_per_week": 3.0, "median_row_hours": 3.75, "style": "itemised", "person_weeks": 18.0, "top_activities": [{"label": "Thought Leadership Development", "value": 11.08, "pct": 61.6}, {"label": "Training & Development", "value": 1.99, "pct": 11.1}, {"label": "NOL Advisory/Support", "value": 1.63, "pct": 9.1}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-05-25", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Jasper Eastman", "department": "Value Management Readiness", "manager": "(none recorded)", "tenure": 2.0, "weeks_reported": 14, "weeks_possible": 24, "coverage_pct": 58, "total_hours": 446.0, "median_week_hours": 33.8, "max_week_hours": 58.0, "rows_per_week": 8.5, "median_row_hours": 3.0, "style": "itemised", "person_weeks": 14.0, "top_activities": [{"label": "Content Development", "value": 5.81, "pct": 41.5}, {"label": "Value Enablement", "value": 1.74, "pct": 12.4}, {"label": "Thought Leadership Development", "value": 1.1, "pct": 7.9}], "prospect_facing_pct": 7.0, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-13", "2026-07-20", "2026-07-27", "2026-09-14"]}, {"name": "Henrik Delacroix", "department": "Value Insights & Thought Leadership, Value Management", "manager": "Esme Ramsey", "tenure": 4.0, "weeks_reported": 21, "weeks_possible": 24, "coverage_pct": 88, "total_hours": 432.0, "median_week_hours": 20.0, "max_week_hours": 28.0, "rows_per_week": 5, "median_row_hours": 3.0, "style": "itemised", "person_weeks": 21.0, "top_activities": [{"label": "Value BoM Development/Maintenance", "value": 12.98, "pct": 61.8}, {"label": "NOL Advisory/Support", "value": 6.16, "pct": 29.3}, {"label": "Product Value Metric Instrumentation", "value": 1.46, "pct": 7.0}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Samuel Quarry", "department": "VM Digital COE", "manager": "Umar Kessler", "tenure": 1.0, "weeks_reported": 20, "weeks_possible": 24, "coverage_pct": 83, "total_hours": 406.5, "median_week_hours": 21.0, "max_week_hours": 35.5, "rows_per_week": 7.0, "median_row_hours": 2.0, "style": "itemised", "person_weeks": 20.0, "top_activities": [{"label": "Business Case Build", "value": 4.8, "pct": 24.0}, {"label": "Case for Change Presentation", "value": 3.92, "pct": 19.6}, {"label": "Strategy Session", "value": 2.89, "pct": 14.5}], "prospect_facing_pct": 34.6, "weeks_by_week": ["2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14"]}, {"name": "Olivia Lindqvist", "department": "Global Functional Revenue Operations", "manager": "(none recorded)", "tenure": 6.0, "weeks_reported": 11, "weeks_possible": 24, "coverage_pct": 46, "total_hours": 401.0, "median_week_hours": 40.0, "max_week_hours": 50.0, "rows_per_week": 3, "median_row_hours": 8.0, "style": "itemised", "person_weeks": 11.0, "top_activities": [{"label": "Thought Leadership Development", "value": 8.86, "pct": 80.6}, {"label": "Event Attendance/Management", "value": 1.94, "pct": 17.6}, {"label": "Marketing Support", "value": 0.2, "pct": 1.8}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06"]}, {"name": "Carmen Okafor", "department": "Global Digital Value Solution Center, Value Management", "manager": "Hugo Juarez", "tenure": 2.0, "weeks_reported": 10, "weeks_possible": 24, "coverage_pct": 42, "total_hours": 350.0, "median_week_hours": 36.0, "max_week_hours": 40.0, "rows_per_week": 1.5, "median_row_hours": 20.0, "style": "bulk", "person_weeks": 10.0, "top_activities": [{"label": "Data Strategy/Management", "value": 5.17, "pct": 51.7}, {"label": "Digital Experience Management", "value": 4.83, "pct": 48.3}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-07-06"]}, {"name": "Tobias Ulrich", "department": "VM Digital COE", "manager": "Clara Zeller", "tenure": null, "weeks_reported": 9, "weeks_possible": 24, "coverage_pct": 38, "total_hours": 328.0, "median_week_hours": 40.0, "max_week_hours": 72.0, "rows_per_week": 1, "median_row_hours": 36.0, "style": "bulk", "person_weeks": 9.0, "top_activities": [{"label": "Digital Experience Management", "value": 9.0, "pct": 100.0}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29"]}, {"name": "Zoe Ellery", "department": "Global Digital Value Solution Center, Value Management", "manager": "Hugo Juarez", "tenure": 2.0, "weeks_reported": 7, "weeks_possible": 24, "coverage_pct": 29, "total_hours": 299.0, "median_week_hours": 40.0, "max_week_hours": 80.0, "rows_per_week": 1, "median_row_hours": 38.0, "style": "bulk", "person_weeks": 7.0, "top_activities": [{"label": "Digital Experience Management", "value": 6.84, "pct": 97.7}, {"label": "Value Enablement", "value": 0.09, "pct": 1.3}, {"label": "Business Case Consultation/Workshop", "value": 0.07, "pct": 1.0}], "prospect_facing_pct": 1.0, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15"]}, {"name": "Celeste Ingram", "department": "Value Insights & Thought Leadership, Value Management", "manager": "Esme Ramsey", "tenure": 10.0, "weeks_reported": 17, "weeks_possible": 24, "coverage_pct": 71, "total_hours": 237.5, "median_week_hours": 12.5, "max_week_hours": 26.5, "rows_per_week": 9, "median_row_hours": 1.0, "style": "itemised", "person_weeks": 17.0, "top_activities": [{"label": "Value Enablement", "value": 8.33, "pct": 49.0}, {"label": "Digital Experience Management", "value": 3.2, "pct": 18.8}, {"label": "Training & Development", "value": 2.47, "pct": 14.6}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Elena Danforth", "department": "VM Digital COE", "manager": "Umar Kessler", "tenure": 0.0, "weeks_reported": 7, "weeks_possible": 24, "coverage_pct": 29, "total_hours": 224.0, "median_week_hours": 32.0, "max_week_hours": 32.0, "rows_per_week": 1, "median_row_hours": 29.0, "style": "bulk", "person_weeks": 7.0, "top_activities": [{"label": "Training & Development", "value": 6.72, "pct": 96.0}, {"label": "Business Case Build", "value": 0.28, "pct": 4.0}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Mira Pemberton", "department": "VM Digital COE", "manager": "Umar Kessler", "tenure": 0.0, "weeks_reported": 7, "weeks_possible": 24, "coverage_pct": 29, "total_hours": 224.0, "median_week_hours": 32.0, "max_week_hours": 33.0, "rows_per_week": 1, "median_row_hours": 30.5, "style": "bulk", "person_weeks": 7.0, "top_activities": [{"label": "Training & Development", "value": 6.72, "pct": 96.0}, {"label": "Business Case Build", "value": 0.18, "pct": 2.6}, {"label": "Strategy Session", "value": 0.09, "pct": 1.4}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05"]}, {"name": "Uma Iverson", "department": "VM Digital COE", "manager": "Umar Kessler", "tenure": 2.0, "weeks_reported": 6, "weeks_possible": 24, "coverage_pct": 25, "total_hours": 192.0, "median_week_hours": 32.0, "max_week_hours": 32.0, "rows_per_week": 1.0, "median_row_hours": 32.0, "style": "bulk", "person_weeks": 6.0, "top_activities": [{"label": "Training & Development", "value": 6.0, "pct": 100.0}], "prospect_facing_pct": 0.0, "weeks_by_week": ["2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07"]}], "matched": [{"name": "Bluepoint Retail - Keystonepine Services GO - HCM, Payroll", "account": "Orchardmark Insurance", "tier": "unique deal value", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 122000, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 35.0, "people": ["Bastian Yardley", "Gabriel Ivanova"], "first_week": "2026-07-27", "last_week": "2026-08-31"}, {"name": "Copperstar Retail - Data Cloud & Flex Credits", "account": "Lanternstone Retail, LLC", "tier": "unique deal value", "stage_group": "Lost", "stage": "34- Merged Opportunity", "amount": 31500, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 19.0, "people": ["Joaquin Whitlock"], "first_week": "2026-07-20", "last_week": "2026-08-10"}, {"name": "Coastalbay Medical - Flex Credits", "account": "Lanternstone Retail, LLC", "tier": "unique deal value", "stage_group": "Lost", "stage": "34- Merged Opportunity", "amount": 31500, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 10.0, "people": ["Samuel Quarry"], "first_week": "2026-08-31", "last_week": "2026-09-07"}, {"name": "Lanternpoint Foods - Flex Credits", "account": "Lanternpoint Foods Corporation", "tier": "exact name", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 2900, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 10.0, "people": ["Bastian Yardley"], "first_week": "2026-05-04", "last_week": "2026-05-04"}, {"name": "Oakmark Capital Corporation-Extend Pro, Data Cloud", "account": "Aspenpeak Services", "tier": "unique deal value", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 92800, "fiscal_period": "2027-Q1", "segment": "EMEA", "hours": 6.0, "people": ["Yara Larkin"], "first_week": "2026-08-03", "last_week": "2026-08-03"}, {"name": "Harborwood Health - LDP: HCM, Maya/WW, TT,AM, US Pay, GPC - Split 50% (Non-Primary)", "account": "Pioneerport Foods Holdings Inc.", "tier": "unique deal value", "stage_group": "Lost", "stage": "30- Closed/Lost to Competition", "amount": 280200, "fiscal_period": "2027-Q4", "segment": "North America", "hours": 5.5, "people": ["Joaquin Whitlock"], "first_week": "2026-04-27", "last_week": "2026-04-27"}, {"name": "Redwoodstone Health - Workforce Planning 2026", "account": "Bluestar Hospitality, Inc.", "tier": "unique deal value", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 50200, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 5.5, "people": ["Samuel Quarry"], "first_week": "2026-07-13", "last_week": "2026-08-03"}, {"name": "Beaconshore Insurance-Paradox", "account": "Willowmark Holdings Group", "tier": "exact name", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 21800, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 5.0, "people": ["Bastian Yardley", "Yara Larkin"], "first_week": "2026-04-27", "last_week": "2026-05-11"}, {"name": "Summitbay Insurance - Evisort - Non Primary - Split 40%", "account": "Summitbay Insurance, Inc.", "tier": "exact name", "stage_group": "Lost", "stage": "34- Merged Opportunity", "amount": 47600, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 5.0, "people": ["Matthias Quillan"], "first_week": "2026-04-27", "last_week": "2026-04-27"}, {"name": "Summitbay Insurance - Evisort - Primary Split 60%", "account": "Summitbay Insurance, Inc.", "tier": "exact name", "stage_group": "Lost", "stage": "34- Merged Opportunity", "amount": 145200, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 5.0, "people": ["Matthias Quillan"], "first_week": "2026-04-27", "last_week": "2026-04-27"}, {"name": "Beaconshore Insurance-Keystonepine Services Go HR + Frontline Workers Medium Lane (subsidy promo)", "account": "Orchardpoint Foods Ltd.", "tier": "unique deal value", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 142600, "fiscal_period": "2027-Q2", "segment": "APAC", "hours": 4.5, "people": ["Bastian Yardley"], "first_week": "2026-05-11", "last_week": "2026-05-11"}, {"name": "Atlaspoint Capital Capital Management LP, on behalf of its advisory clients-FY27", "account": "Willowshore Labs", "tier": "unique deal value", "stage_group": "Lost", "stage": "34- Merged Opportunity", "amount": 150600, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 4.0, "people": ["Samuel Quarry"], "first_week": "2026-06-22", "last_week": "2026-06-22"}, {"name": "Bluevale Hospitality - SSR: PRA, ACC, PRO, PRJ, JRNY, PLNW, CEXP, XTND Pro", "account": "Bluevale Hospitality", "tier": "exact name", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 290800, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 4.0, "people": ["Samuel Quarry"], "first_week": "2026-05-04", "last_week": "2026-05-04"}, {"name": "Crescentline Hospitality - HCM - Primary 50%", "account": "Falconstone Energy", "tier": "unique deal value", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 101400, "fiscal_period": "2027-Q1", "segment": "North America", "hours": 4.0, "people": ["Gabriel Ivanova"], "first_week": "2026-04-27", "last_week": "2026-04-27"}, {"name": "Pioneerridge Logistics - Growth Event - Coterm - Primary Split 75%", "account": "Granitebay Analytics LLC", "tier": "exact name", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 151000, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 4.0, "people": ["Joaquin Whitlock"], "first_week": "2026-07-20", "last_week": "2026-07-20"}, {"name": "Prairiefield Logistics - LDP: HCM, AM, ACM, TLO, REC, MSG, CE, EMPVCE, LRN, CCLRN, GPC", "account": "Atlasgate Manufacturing", "tier": "unique deal value", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 96500, "fiscal_period": "2027-Q4", "segment": "EMEA", "hours": 4.0, "people": ["Joaquin Whitlock"], "first_week": "2026-05-18", "last_week": "2026-06-08"}, {"name": "Silvershore Health - SSR (CLM, PRJ, PRA, ACC, PKN, MSG)", "account": "Silvershore Health", "tier": "exact name", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 340900, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 4.0, "people": ["Matthias Quillan"], "first_week": "2026-04-27", "last_week": "2026-04-27"}, {"name": "Summitgate Industries - WSP, Flex Credits", "account": "Willowmark Capital", "tier": "exact name", "stage_group": "Lost", "stage": "32- Closed Mid Cycle Qual Out", "amount": 72700, "fiscal_period": "2027-Q3", "segment": "UNKNOWN", "hours": 3.0, "people": ["Matthias Quillan"], "first_week": "2026-06-01", "last_week": "2026-06-01"}, {"name": "Evergreenpoint Systems - LDP CEX", "account": "Evergreenpoint Systems, LLC", "tier": "exact name", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 64000, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 2.5, "people": ["Joaquin Whitlock"], "first_week": "2026-05-18", "last_week": "2026-05-25"}, {"name": "Oakshore Manufacturing-ROC - FINS/PSA", "account": "Willowshore Labs", "tier": "exact name", "stage_group": "Lost", "stage": "34- Merged Opportunity", "amount": 134100, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 2.5, "people": ["Samuel Quarry"], "first_week": "2026-05-11", "last_week": "2026-05-11"}, {"name": "Summitfield Technologies - PLNW", "account": "Maplebrook Energy, Inc.", "tier": "unique deal value", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 157000, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 2.5, "people": ["Joaquin Whitlock"], "first_week": "2026-09-14", "last_week": "2026-09-21"}, {"name": "Summitfield Technologies - Pay Transparency Analyzer", "account": "Blueshore Medical", "tier": "unique deal value", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 17600, "fiscal_period": "2027-Q1", "segment": "North America", "hours": 2.5, "people": ["Joaquin Whitlock"], "first_week": "2026-09-14", "last_week": "2026-09-21"}, {"name": "Coppercrest Insurance - HCM (+ancillary SKUs)", "account": "Silverport Technologies", "tier": "exact name", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 60600, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 2.0, "people": ["Bastian Yardley"], "first_week": "2026-06-01", "last_week": "2026-06-01"}, {"name": "Lanternstone Insurance - HCM PAY FINS PSA", "account": "Prairiemark Technologies, LLC", "tier": "unique deal value", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 186500, "fiscal_period": "2027-Q3", "segment": "North America", "hours": 2.0, "people": ["Yara Larkin"], "first_week": "2026-07-20", "last_week": "2026-07-20"}, {"name": "Maplepeak Analytics", "account": "Highlandcrest Energy", "tier": "exact name", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 38900, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 2.0, "people": ["Yara Larkin"], "first_week": "2026-05-11", "last_week": "2026-05-11"}, {"name": "Orchardwell Insurance - SLRN", "account": "Northpoint Holdings", "tier": "exact name", "stage_group": "Lost", "stage": "34- Merged Opportunity", "amount": 96100, "fiscal_period": "2027-Q4", "segment": "North America", "hours": 2.0, "people": ["Gabriel Ivanova"], "first_week": "2026-05-04", "last_week": "2026-05-04"}, {"name": "Sterlingvale Hospitality - LDP: HCM, Maya, GPC, REC, ACM, TLO, PLNW, THUB, AM", "account": "Atlaswell Energy Limited", "tier": "unique deal value", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 173400, "fiscal_period": "2027-Q1", "segment": "EMEA", "hours": 2.0, "people": ["Matthias Quillan"], "first_week": "2026-04-27", "last_week": "2026-04-27"}, {"name": "Silverwood Hospitality - SSR + FINs, EXP, PROC, PROJ, ACC, WDC, EXT, LRNSNA & WSP Essentials", "account": "Lanternstar Technologies Inc.", "tier": "unique deal value", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 144900, "fiscal_period": "2027-Q1", "segment": "North America", "hours": 1.5, "people": ["Matthias Quillan"], "first_week": "2026-04-27", "last_week": "2026-04-27"}, {"name": "Willowshore Labs, FINS, Exp, PRA, Extend Pro, ACC, PLANF", "account": "Willowshore Labs", "tier": "exact name", "stage_group": "Lost", "stage": "34- Merged Opportunity", "amount": 150600, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 1.5, "people": ["Samuel Quarry"], "first_week": "2026-06-01", "last_week": "2026-06-01"}, {"name": "Prairiefield Insurance", "account": "Coastalvale Insurance Limited", "tier": "unique deal value", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 63100, "fiscal_period": "2027-Q2", "segment": "EMEA", "hours": 1.3, "people": ["Matthias Quillan"], "first_week": "2026-06-08", "last_week": "2026-06-08"}, {"name": "Coastalpeak Services - Paradox", "account": "Aspenpeak Services", "tier": "unique deal value", "stage_group": "Won", "stage": "9- Closed/Won", "amount": 30700, "fiscal_period": "2027-Q1", "segment": "EMEA", "hours": 1.0, "people": ["Matthias Quillan"], "first_week": "2026-06-29", "last_week": "2026-06-29"}, {"name": "Crescentvale Capital, LO, PRA, SANA", "account": "Crescentvale Capital Group, LLC", "tier": "exact name", "stage_group": "Lost", "stage": "34- Merged Opportunity", "amount": 134700, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 1.0, "people": ["Joaquin Whitlock"], "first_week": "2026-05-25", "last_week": "2026-05-25"}, {"name": "Mapleridge Foods - FP&A", "account": "Highlandpine Financial LLC.", "tier": "unique deal value", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 69700, "fiscal_period": "2027-Q4", "segment": "North America", "hours": 1.0, "people": ["Bastian Yardley"], "first_week": "2026-08-17", "last_week": "2026-08-17"}, {"name": "Oakwell Manufacturing - HelixGO HCM", "account": "Riverpeak Capital Corporation", "tier": "unique deal value", "stage_group": "Lost", "stage": "32- Closed Mid Cycle Qual Out", "amount": 50300, "fiscal_period": "2027-Q4", "segment": "North America", "hours": 1.0, "people": ["Gabriel Ivanova"], "first_week": "2026-07-20", "last_week": "2026-07-20"}, {"name": "Re:Car, Inc.m CEX + AITB", "account": "Falconbrook Services", "tier": "unique deal value", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 82300, "fiscal_period": "2027-Q3", "segment": "APAC", "hours": 1.0, "people": ["Yara Larkin"], "first_week": "2026-05-11", "last_week": "2026-05-11"}, {"name": "Blueport Services - CLM", "account": "Coastalmark Industries, Inc.", "tier": "unique deal value", "stage_group": "Lost", "stage": "30- Closed/Lost to Competition", "amount": 111900, "fiscal_period": "2027-Q2", "segment": "North America", "hours": 0.5, "people": ["Yara Larkin"], "first_week": "2026-06-29", "last_week": "2026-06-29"}, {"name": "Coastalstone Foods - Seismic Merger Growth", "account": "Riverstar Retail Corporation", "tier": "unique deal value", "stage_group": "Lost", "stage": "30- Closed/Lost to Competition", "amount": 112300, "fiscal_period": "2027-Q1", "segment": "North America", "hours": 0.5, "people": ["Matthias Quillan"], "first_week": "2026-08-03", "last_week": "2026-08-03"}, {"name": "Oakpine Partners", "account": "Highlandgate Industries, Inc.", "tier": "exact name", "stage_group": "Lost", "stage": "50- Closed/Historical Data Only", "amount": 82800, "fiscal_period": "2027-Q4", "segment": "North America", "hours": 0.5, "people": ["Matthias Quillan"], "first_week": "2026-06-01", "last_week": "2026-06-01"}, {"name": "Willowpoint Health - Paradox", "account": "Orchardbrook Manufacturing", "tier": "unique deal value", "stage_group": "Lost", "stage": "31- Closed/Lost to Do Nothing", "amount": 71700, "fiscal_period": "2027-Q3", "segment": "North America", "hours": 0.5, "people": ["Matthias Quillan"], "first_week": "2026-10-05", "last_week": "2026-10-05"}], "opp_stage_mix": [{"label": "Lost", "value": 232.0, "pct": 67.6}, {"label": "Won", "value": 111.0, "pct": 32.4}], "activity_catalogue": ["Baseline Assessment Completed", "Baseline Assessment Initiated", "Business Case Build", "Business Case Consultation/Workshop", "Business Case Presentation", "CS Enablement", "Case for Change Presentation", "Content Development", "Content Management", "Data Strategy/Management", "Demo with Value", "Digital Experience Management", "Event Attendance/Management", "Executive Value Brief", "Full Discovery", "Introduction Call", "Light Discovery", "Marketing Enablement", "Marketing Support", "NOL Advisory/Support", "Other", "Outside-in Business Case", "Partner Support​", "Product Value Metric Instrumentation", "Rapid Response Session", "Sales/SSO Support", "Self-Serve Value Messaging Support", "Self-serve Business Case Support", "Strategy Session", "Target", "Thought Leadership Development", "Training & Development", "VM Intro", "VM-led Discovery", "VM-supported Discovery", "VR Study Completed", "Value Assessment Completed", "Value Assessment Initiated", "Value Based Discovery", "Value BoM Development/Maintenance", "Value Brief Completed", "Value Collateral", "Value Enablement"]}</script>
+<script>/*
+ * Pure computation for the dashboard. No DOM, no I/O, no globals beyond the
+ * one export below, so it can be run head-first by a JavaScript engine in a
+ * test and inlined into the page at build time.
+ *
+ * Everything that decides *what a number is* lives here. The template keeps
+ * only the code that decides what it looks like. That split is deliberate:
+ * both of the real bugs found in review were aggregation bugs, in code that
+ * was unreachable from a test while it sat inside the page.
+ */
+var VMDash = (function () {
+  "use strict";
+
+  // --- formatting ---------------------------------------------------------
+  // Separators follow the viewer's locale on purpose. Tests must not assert
+  // on them; assert on the shape instead.
+  function num(n, d) {
+    d = d || 0;
+    return Number(n).toLocaleString(undefined,
+      { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+
+  function pct(n) { return num(n, 1) + "%"; }
+
+  function money(n) {
+    if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return "$" + Math.round(n / 1e3) + "k";
+    return "$" + num(n);
+  }
+
+  // --- quarter helpers ----------------------------------------------------
+
+  /** Real quarter keys, never the synthetic "all" bucket. */
+  function quarterKeys(data) {
+    return Object.keys(data.quarters).filter(function (k) { return k !== "__all__"; });
+  }
+
+  /**
+   * A quarter clipped by the edge of the export is not comparable with a full
+   * one, and must be labelled rather than charted as a decline.
+   */
+  function isStub(quarter) {
+    return quarter.week_count > 0 && quarter.week_count < 4;
+  }
+
+  /**
+   * The whole-period view.
+   *
+   * Only weeks, hours, person-weeks and the people set are summed, because
+   * those are additive. Everything else is taken from the pipeline, which
+   * computes it once from the rows:
+   *
+   *  - deal values and opportunity counts would double-count an opportunity
+   *    worked either side of a quarter boundary;
+   *  - the activity tables keep only each quarter's top rows, so summing them
+   *    divides by a truncated denominator and inflates every share.
+   *
+   * Both of those shipped as bugs before this function was testable.
+   */
+  function makeAll(data) {
+    var out = {
+      label: "All reported weeks",
+      weeks: [], people: [], week_count: 0, person_count: 0,
+      hours: 0, person_weeks: 0
+    };
+    var peopleSet = {};
+
+    quarterKeys(data).forEach(function (k) {
+      var q = data.quarters[k];
+      out.weeks = out.weeks.concat(q.weeks);
+      out.hours += q.hours;
+      out.person_weeks += q.person_weeks;
+      q.people.forEach(function (p) { peopleSet[p] = 1; });
+    });
+
+    out.funnel = data.period_funnel;
+    Object.keys(data.period_tables).forEach(function (t) {
+      out[t] = data.period_tables[t];
+    });
+
+    out.week_count = out.weeks.length;
+    out.people = Object.keys(peopleSet).sort();
+    out.person_count = out.people.length;
+    out.hours = Math.round(out.hours * 10) / 10;
+    out.person_weeks = Math.round(out.person_weeks * 10) / 10;
+    out.hours_per_person_week = out.person_weeks
+      ? Math.round(10 * out.hours / out.person_weeks) / 10 : 0;
+    out.prospect_facing_pct = data.headline.prospect_facing_pct;
+    return out;
+  }
+
+  // --- chart data ---------------------------------------------------------
+
+  /**
+   * Pair each row of the selected measure with the same label's share under
+   * the other measure. A label missing from the other table leaves `other`
+   * undefined, and the caller draws no comparison rather than a false zero.
+   */
+  function pairRows(primary, secondary) {
+    var map = {};
+    (secondary || []).forEach(function (r) { map[r.label] = r.pct; });
+    return (primary || []).map(function (r) {
+      return {
+        label: r.label, value: r.value, pct: r.pct,
+        other: map[r.label], bulk_pct: r.bulk_pct
+      };
+    });
+  }
+
+  /** How to read a gap between counting everyone and counting itemised loggers. */
+  function lensVerdict(gap) {
+    if (Math.abs(gap) < 1.5) return "solid";
+    return gap > 0 ? "inflated" : "understated";
+  }
+
+  /** The four evidence-chain steps, each a subset of the one before it. */
+  function funnelSteps(funnel) {
+    var top = funnel.all_hours || 1;
+    var rows = [
+      { key: "all", label: "All effort logged", hours: funnel.all_hours },
+      { key: "opp", label: "Names an opportunity", hours: funnel.opp_linked_hours },
+      { key: "crm", label: "Found in the CRM extract", hours: funnel.crm_matched_hours },
+      { key: "won", label: "On a deal that was won", hours: funnel.won_hours }
+    ];
+    return rows.map(function (r) {
+      r.share = 100 * r.hours / top;
+      return r;
+    });
+  }
+
+  return {
+    num: num, pct: pct, money: money,
+    quarterKeys: quarterKeys, isStub: isStub, makeAll: makeAll,
+    pairRows: pairRows, lensVerdict: lensVerdict, funnelSteps: funnelSteps
+  };
+})();
+
+if (typeof module === "object" && module.exports) { module.exports = VMDash; }
+</script>
+<script>
+(function(){
+"use strict";
+
+// template.html is a template, not a page: the build step replaces the
+// placeholder below with the data. Opening the template directly used to give
+// a blank screen with an error only visible in the console.
+var raw = document.getElementById('payload').textContent;
+if (raw.indexOf('__' + 'DATA__') === 0) {
+  document.body.innerHTML =
+    '<div style="max-width:40em;margin:15vh auto;padding:0 1.5em;font:16px/1.6 ' +
+    '-apple-system,BlinkMacSystemFont,sans-serif">' +
+    '<h1 style="font-size:20px">This is the template, not the dashboard.</h1>' +
+    '<p>It has no data in it yet. Build the dashboard and open that instead:</p>' +
+    '<pre style="background:#eee;color:#15181d;padding:1em;border-radius:8px;' +
+    'overflow-x:auto">python3 build.py</pre>' +
+    '<p>Then open <b>dashboard.html</b> in this same folder.</p></div>';
+  return;
+}
+var D = JSON.parse(raw);
+
+// Computation lives in dashboard_logic.js so it can be tested head-first;
+// this file only decides what things look like.
+var num = VMDash.num, pct = VMDash.pct, money = VMDash.money,
+    isStub = VMDash.isStub, pairRows = VMDash.pairRows;
+var QKEYS = VMDash.quarterKeys(D);
+var state = { quarter: QKEYS[QKEYS.length-1], measure: 'pw', tab: 'overview' };
+
+// ---- helpers ------------------------------------------------------------
+function $(id){ return document.getElementById(id); }
+function el(tag, cls, txt){ var e=document.createElement(tag); if(cls)e.className=cls;
+  if(txt!==undefined)e.textContent=txt; return e; }
+function esc(s){ var d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
+function clear(node){ while(node.firstChild) node.removeChild(node.firstChild); }
+function q(){ return D.quarters[state.quarter]; }
+function isAll(){ return state.quarter === '__all__'; }
+function measureLabel(){ return state.measure==='pw' ? 'person-weeks' : 'hours'; }
+function otherLabel(){ return state.measure==='pw' ? 'raw hours' : 'person-weeks'; }
+
+// The "All reported weeks" option. Built in dashboard_logic.js, under test.
+D.quarters['__all__'] = VMDash.makeAll(D);
+
+// ---- bar lists ----------------------------------------------------------
+function drawBars(node, rows, opts){
+  opts = opts || {};
+  clear(node);
+  if(!rows || !rows.length){ node.appendChild(el('p','why','No data for this selection.')); return; }
+  var max = Math.max.apply(null, rows.map(function(r){ return r.pct; }));
+  rows.forEach(function(r){
+    var row = el('div','row');
+    var lab = el('div','rl');
+    var left = el('span');
+    left.appendChild(document.createTextNode(r.label));
+    // How much of this bar comes from people who book a whole week to one line.
+    if(r.bulk_pct !== undefined && r.bulk_pct >= 40){
+      var bp = el('span','pill warn', r.bulk_pct + '% from bulk logs');
+      bp.style.marginLeft = '8px';
+      bp.title = 'Most of this figure comes from people who book a whole week to a single '
+        + 'line, so it reflects the limits of their logging detail rather than a team priority.';
+      left.appendChild(bp);
+    }
+    lab.appendChild(left);
+    var right = el('span');
+    var b = el('b', null, pct(r.pct));
+    right.appendChild(b);
+    if(opts.compare && r.other !== undefined){
+      var diff = r.pct - r.other;
+      var cls = Math.abs(diff) < 1.5 ? 'flat' : (diff > 0 ? 'up' : 'down');
+      var d = el('span','delta '+cls, '  ' + (diff>0?'+':'') + num(diff,1) + 'pp');
+      right.appendChild(d);
+    }
+    lab.appendChild(right);
+    row.appendChild(lab);
+    if(opts.compare && r.other !== undefined){
+      var t2 = el('div','track');
+      var f2 = el('div','fill alt'); f2.style.width = (100*r.other/max)+'%';
+      t2.appendChild(f2); t2.style.height='5px'; t2.style.marginBottom='2px';
+      row.appendChild(t2);
+    }
+    var t = el('div','track');
+    var f = el('div','fill'); f.style.width = (100*r.pct/max)+'%';
+    t.appendChild(f); row.appendChild(t);
+    node.appendChild(row);
+  });
+}
+
+// ---- overview -----------------------------------------------------------
+function drawOverview(){
+  var Q = q(), H = D.headline;
+  var usingPW = state.measure==='pw';
+
+  var note = $('measureNote'); clear(note);
+  var c = el('div','callout');
+  c.innerHTML = usingPW
+    ? '<b>Measuring in person-weeks.</b> One person logging one week counts as 1.0, '
+      + 'split across their rows in proportion to the hours they booked. This is the only '
+      + 'measure on which the ' + H.bulk_people + ' people who book a whole week to a single '
+      + 'line and the ' + (H.people - H.bulk_people) + ' who log task by task can be compared. '
+      + 'Switch to raw hours to see how much that choice changes the picture.'
+    : '<b>Measuring in raw hours, as logged.</b> Treat comparisons between people with care: '
+      + H.bulk_people + ' of ' + H.people + ' people book most of a week to one line and account for '
+      + H.bulk_hours_pct + '% of all logged hours, so this measure reflects how people fill the '
+      + 'form as much as what they worked on.';
+  note.appendChild(c);
+
+  if(isStub(Q)){
+    var w = el('div','callout warn');
+    w.innerHTML = '<b>' + esc(Q.label) + ' holds only ' + Q.week_count + ' reported week'
+      + (Q.week_count===1?'':'s') + '.</b> It sits at the edge of the export rather than being a '
+      + 'full quarter. Totals here are not comparable with a full quarter.';
+    note.appendChild(w);
+  }
+
+  var kp = $('kpis'); clear(kp);
+  function kpi(lab, val, unit, note, flag){
+    var k = el('div','kpi' + (flag?' flag-'+flag:''));
+    k.appendChild(el('div','lab',lab));
+    var v = el('div','val'); v.appendChild(document.createTextNode(val));
+    if(unit){ var s=el('small',null,unit); v.appendChild(s); }
+    k.appendChild(v);
+    if(note) k.appendChild(el('div','note',note));
+    kp.appendChild(k);
+  }
+  kpi('Effort recorded',
+      usingPW ? num(Q.person_weeks,0) : num(Q.hours,0),
+      usingPW ? 'person-weeks' : 'hours',
+      Q.week_count + ' weeks · ' + Q.person_count + ' people reporting');
+  kpi('Reporting coverage', H.coverage_pct, '%',
+      'Share of possible person-weeks actually filed across the whole export',
+      H.coverage_pct < 80 ? 'warn' : null);
+  kpi('Logged per person-week', num(Q.hours_per_person_week,1), 'h',
+      'Against a 40h week — the gap is unfiled time, not idle time',
+      Q.hours_per_person_week < 35 ? 'warn' : null);
+  kpi('Customer-facing effort', pct(Q.prospect_facing_pct), '',
+      'Share of effort flagged Prospect Facing');
+  kpi('Attached to an opportunity', pct(H.opp_linked_pct), '',
+      'Share of all logged hours naming an opportunity');
+  kpi('Traceable to a closed deal', pct(H.crm_matched_pct), '',
+      H.opps_matched + ' of ' + H.opps_touched + ' opportunities in the log could be found in the CRM extract',
+      'bad');
+
+  drawBars($('typeBars'), pairRows(
+    usingPW ? Q.by_type_pw : Q.by_type_hours,
+    usingPW ? Q.by_type_hours : Q.by_type_pw), {compare:true});
+  drawBars($('catBars'), pairRows(
+    usingPW ? Q.by_category_pw : Q.by_category_hours,
+    usingPW ? Q.by_category_hours : Q.by_category_pw), {compare:true});
+
+  drawWeeks();
+}
+
+// ---- weekly chart (inline SVG) -----------------------------------------
+function drawWeeks(){
+  var host = $('weekChart'); clear(host);
+  var W = D.weekly, n = W.length;
+  var w = 1060, h = 190, padL = 42, padR = 12, padT = 12, padB = 44;
+  var iw = w - padL - padR, ih = h - padT - padB;
+  var max = Math.max.apply(null, W.map(function(d){ return d.hours; })) * 1.12;
+  var bw = iw / n;
+
+  var svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox','0 0 '+w+' '+h);
+  svg.setAttribute('class','spark');
+  svg.style.width='100%'; svg.style.height='auto';
+  function mk(tag, attrs){
+    var e = document.createElementNS('http://www.w3.org/2000/svg',tag);
+    for(var k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+  // y gridlines
+  [0,0.5,1].forEach(function(f){
+    var y = padT + ih - f*ih;
+    svg.appendChild(mk('line',{x1:padL,x2:w-padR,y1:y,y2:y,
+      stroke:'var(--line)','stroke-width':1}));
+    var t = mk('text',{x:padL-8,y:y+4,'text-anchor':'end',
+      'font-size':11,fill:'var(--faint)'});
+    t.textContent = Math.round(max*f);
+    svg.appendChild(t);
+  });
+  var selWeeks = {}; (q().weeks||[]).forEach(function(k){ selWeeks[k]=1; });
+  W.forEach(function(d,i){
+    var bh = max ? (d.hours/max)*ih : 0;
+    var x = padL + i*bw + bw*0.16, bwid = bw*0.68;
+    var inSel = isAll() || selWeeks[d.week];
+    var fill = d.partial ? 'var(--warn)'
+             : d.thin ? 'var(--bad)'
+             : (inSel ? 'var(--bar)' : 'var(--bar-alt)');
+    var r = mk('rect',{x:x, y:padT+ih-bh, width:bwid, height:Math.max(bh,1),
+      fill:fill, rx:2, opacity: inSel||d.partial||d.thin ? 1 : 0.45});
+    var ttl = mk('title');
+    ttl.textContent = d.week + ' — ' + num(d.hours,1) + 'h, ' + d.people + ' people, '
+      + d.rows + ' rows'
+      + (d.partial ? '  (still filling in — excluded from totals)' : '')
+      + (d.thin ? '  (reporting gap — kept in totals, but this week is not a real low)' : '');
+    r.appendChild(ttl);
+    svg.appendChild(r);
+    if(i % 3 === 0 || i === n-1){
+      var lab = mk('text',{x:x+bwid/2, y:h-24,'text-anchor':'middle',
+        'font-size':10, fill:'var(--faint)'});
+      lab.textContent = d.week.slice(5);
+      svg.appendChild(lab);
+    }
+    var pl = mk('text',{x:x+bwid/2, y:h-10,'text-anchor':'middle',
+      'font-size':9.5, fill: d.people < 15 ? 'var(--warn)' : 'var(--faint)'});
+    pl.textContent = d.people;
+    svg.appendChild(pl);
+  });
+  host.appendChild(svg);
+  var lg = el('div','legend');
+  lg.innerHTML = '<span><i style="background:var(--bar)"></i>In selected quarter</span>'
+    + '<span><i style="background:var(--bar-alt)"></i>Other weeks</span>'
+    + '<span><i style="background:var(--warn)"></i>Still filling in — excluded from every total</span>'
+    + '<span><i style="background:var(--bad)"></i>Reporting gap — kept in totals, not a real low</span>'
+    + '<span>Bottom row: people reporting that week</span>';
+  host.appendChild(lg);
+}
+
+// ---- where time goes ----------------------------------------------------
+function drawTime(){
+  var Q = q(), H = D.headline;
+  var usingPW = state.measure==='pw';
+  var primary   = usingPW ? Q.by_activity_pw : Q.by_activity_hours;
+  var secondary = usingPW ? Q.by_activity_hours : Q.by_activity_pw;
+  var rows = pairRows(primary, secondary);
+
+  // The sharpest version of the distortion: the same ranking computed over
+  // everyone, then over only the people who log task by task.
+  var g = (D.lens_gap || [])[0];
+  var cal = $('mixCallout');
+  if(g && Math.abs(g.gap) >= 3){
+    cal.innerHTML = '<b>The single biggest number on this dashboard is mostly an artefact.</b> '
+      + esc(g.label) + ' is ' + pct(g.everyone) + ' of logged hours across the whole team — but '
+      + 'only ' + pct(g.itemised) + ' among the ' + (H.people - H.bulk_people) + ' people who log '
+      + 'task by task. The difference is not extra work; it is ' + H.bulk_people + ' people with '
+      + 'nowhere granular to put a week. Treat ' + esc(g.label) + ' as "unclassified effort" '
+      + 'until the form changes.';
+  } else {
+    cal.innerHTML = 'The ranking below holds whether you count everyone or only the people who '
+      + 'log task by task, so it is robust to how the form gets filled in.';
+  }
+
+  $('lgA').textContent = 'Share by ' + measureLabel() + ' (selected)';
+  $('lgB').textContent = 'Share by ' + otherLabel();
+  drawBars($('actBars'), rows, {compare:true});
+
+  // everyone vs itemised-only
+  var lt = $('lensTable'); clear(lt);
+  var lh = el('thead'), lr = el('tr');
+  ['Activity','Counting everyone','Counting only itemised loggers','Difference','Read it as']
+    .forEach(function(h,i){ lr.appendChild(el('th', (i>=1&&i<=3)?'num':null, h)); });
+  lh.appendChild(lr); lt.appendChild(lh);
+  var ltb = el('tbody');
+  (D.lens_gap||[]).forEach(function(r){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,r.label));
+    tr.appendChild(el('td','num', pct(r.everyone)));
+    tr.appendChild(el('td','num', pct(r.itemised)));
+    var d = el('td','num');
+    d.appendChild(el('span','delta '+(Math.abs(r.gap)<1.5?'flat':(r.gap>0?'down':'up')),
+      (r.gap>0?'+':'')+num(r.gap,1)+'pp'));
+    tr.appendChild(d);
+    var verdict = VMDash.lensVerdict(r.gap);
+    var look = {
+      solid:       ['good', 'solid'],
+      inflated:    ['bad',  'inflated by bulk logging'],
+      understated: ['warn', 'understated — hidden inside bulk logs']
+    }[verdict];
+    var v = el('td');
+    v.appendChild(el('span','pill '+look[0], look[1]));
+    tr.appendChild(v);
+    ltb.appendChild(tr);
+  });
+  lt.appendChild(ltb);
+
+  // quarter on quarter
+  var cats = {}, order = [];
+  QKEYS.forEach(function(k){
+    (D.quarters[k].by_category_pw||[]).forEach(function(r){
+      if(!(r.label in cats)){ cats[r.label]={}; order.push(r.label); }
+      cats[r.label][k] = r.pct;
+    });
+  });
+  order.sort(function(a,b){
+    var sa=0,sb=0; QKEYS.forEach(function(k){ sa+=cats[a][k]||0; sb+=cats[b][k]||0; });
+    return sb-sa;
+  });
+  var t = $('qoqTable'); clear(t);
+  var thead = el('thead'), hr = el('tr');
+  hr.appendChild(el('th',null,'Activity category'));
+  QKEYS.forEach(function(k){
+    var Qq = D.quarters[k];
+    var th = el('th','num');
+    th.appendChild(document.createTextNode(k));
+    var s = el('div'); s.style.fontWeight='400'; s.style.textTransform='none';
+    s.style.letterSpacing='0'; s.style.marginTop='2px';
+    s.textContent = Qq.week_count + (isStub(Qq)?' wk (stub)':' wks');
+    th.appendChild(s);
+    hr.appendChild(th);
+  });
+  hr.appendChild(el('th','num','Move'));
+  thead.appendChild(hr); t.appendChild(thead);
+  var tb = el('tbody');
+  var full = QKEYS.filter(function(k){ return !isStub(D.quarters[k]); });
+  order.forEach(function(cat){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,cat));
+    QKEYS.forEach(function(k){ tr.appendChild(el('td','num', pct(cats[cat][k]||0))); });
+    var mv = el('td','num');
+    if(full.length >= 2){
+      var a = cats[cat][full[full.length-2]]||0, b = cats[cat][full[full.length-1]]||0;
+      var d = b-a;
+      var sp = el('span','delta '+(Math.abs(d)<1.5?'flat':(d>0?'up':'down')),
+        (d>0?'+':'')+num(d,1)+'pp');
+      mv.appendChild(sp);
+    } else { mv.textContent='—'; }
+    tr.appendChild(mv);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+
+  drawBars($('deptBars'), Q.by_department_pw || []);
+}
+
+// ---- people -------------------------------------------------------------
+function drawPeople(){
+  var H = D.headline;
+  $('peopleCallout').innerHTML =
+    '<b>Hours are not comparable between these people.</b> Median weekly hours run from '
+    + num(Math.min.apply(null, D.people.map(function(p){return p.median_week_hours;})),1)
+    + 'h to '
+    + num(Math.max.apply(null, D.people.map(function(p){return p.median_week_hours;})),1)
+    + 'h, and ' + H.bulk_people + ' of ' + H.people + ' people book most of a week to a single '
+    + 'line. That spread is reporting behaviour. Nothing on this page should be read as '
+    + 'productivity, and the coverage column is the first thing to fix.';
+
+  var t = $('peopleTable'); clear(t);
+  var thead = el('thead'), hr = el('tr');
+  // Each header carries the alignment of the cells beneath it. Spelled out
+  // rather than derived from the index, so adding a column cannot silently
+  // shift every heading after it out of line with its own data.
+  [['Person',null],['Team',null],['Logging style',null],['Weeks filed',null],
+   ['Weeks reported','num'],['Median week','num'],['Busiest week','num'],
+   ['Person-weeks','num'],['Customer-facing','num'],['Top activity',null]]
+    .forEach(function(h){ hr.appendChild(el('th', h[1], h[0])); });
+  thead.appendChild(hr); t.appendChild(thead);
+  var tb = el('tbody');
+  var weeks = D.weekly.filter(function(w){ return !w.partial; }).map(function(w){ return w.week; });
+  D.people.slice().sort(function(a,b){ return b.coverage_pct - a.coverage_pct; })
+  .forEach(function(p){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,p.name));
+    var team = el('td'); team.appendChild(document.createTextNode(p.department));
+    var m = el('div'); m.style.color='var(--faint)'; m.style.fontSize='12px';
+    m.textContent = p.manager; team.appendChild(m);
+    tr.appendChild(team);
+    var st = el('td');
+    st.appendChild(el('span','pill ' + (p.style==='bulk'?'warn':'good'),
+      p.style==='bulk' ? 'bulk' : 'itemised'));
+    var sd = el('div'); sd.style.color='var(--faint)'; sd.style.fontSize='11.5px';
+    sd.style.marginTop='3px';
+    sd.textContent = num(p.rows_per_week,1) + ' rows/wk · ' + num(p.median_row_hours,1) + 'h/row';
+    st.appendChild(sd);
+    tr.appendChild(st);
+
+    // coverage strip
+    var cov = el('td');
+    var svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('viewBox','0 0 '+(weeks.length*5)+' 14');
+    svg.setAttribute('width', weeks.length*5); svg.setAttribute('height',14);
+    var filed = {}; p.weeks_by_week.forEach(function(w){ filed[w]=1; });
+    weeks.forEach(function(w,i){
+      var r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      r.setAttribute('x', i*5); r.setAttribute('y', 2);
+      r.setAttribute('width', 4); r.setAttribute('height', 10); r.setAttribute('rx',1);
+      r.setAttribute('fill', filed[w] ? 'var(--bar)' : 'var(--line)');
+      var ti = document.createElementNS('http://www.w3.org/2000/svg','title');
+      ti.textContent = w + (filed[w] ? ' — filed' : ' — nothing filed');
+      r.appendChild(ti);
+      svg.appendChild(r);
+    });
+    cov.appendChild(svg);
+    tr.appendChild(cov);
+
+    var cp = el('td','num');
+    cp.appendChild(el('span','pill ' + (p.coverage_pct>=80?'good':(p.coverage_pct>=50?'warn':'bad')),
+      p.coverage_pct + '%'));
+    var cd = el('div'); cd.style.color='var(--faint)'; cd.style.fontSize='11.5px';
+    cd.style.marginTop='3px';
+    cd.textContent = p.weeks_reported + '/' + p.weeks_possible;
+    cp.appendChild(cd);
+    tr.appendChild(cp);
+
+    tr.appendChild(el('td','num', num(p.median_week_hours,1)+'h'));
+    tr.appendChild(el('td','num', num(p.max_week_hours,1)+'h'));
+    tr.appendChild(el('td','num', num(p.person_weeks,1)));
+    tr.appendChild(el('td','num', pct(p.prospect_facing_pct)));
+    var ta = el('td');
+    if(p.top_activities.length){
+      ta.appendChild(document.createTextNode(p.top_activities[0].label));
+      var pc = el('div'); pc.style.color='var(--faint)'; pc.style.fontSize='12px';
+      pc.textContent = pct(p.top_activities[0].pct) + ' of their effort';
+      ta.appendChild(pc);
+    }
+    tr.appendChild(ta);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+}
+
+// ---- evidence chain -----------------------------------------------------
+function drawImpact(){
+  var Q = q(), F = Q.funnel, H = D.headline;
+  $('impactCallout').innerHTML =
+    '<b>This is the question the data cannot yet answer.</b> The time log identifies an '
+    + 'opportunity by a hand-typed name; the CRM extract identifies it by an id the time log '
+    + 'never carries. ' + H.opps_matched + ' of the ' + H.opps_touched + ' opportunities in the '
+    + 'log could be matched to the ' + H.opps_in_crm + ' closed deals — ' + pct(H.crm_matched_pct)
+    + ' of logged hours. Any win-rate or ROI figure built on that base would be a number with '
+    + 'no evidence under it. Putting the opportunity id in the time log closes this gap in one change.';
+
+  var detail = {
+    all: ['Every hour in the selected period', ''],
+    opp: [(F.opps_touched||0) + ' distinct opportunities · '
+          + money(F.value_touched||0) + ' of deal value', 'fade1'],
+    crm: [(F.opps_matched||0) + ' opportunities matched · '
+          + money(F.value_matched||0), 'fade2'],
+    won: [(F.opps_won||0) + ' won · ' + money(F.value_won||0), 'fade3']
+  };
+  var host = $('funnel'); clear(host);
+  VMDash.funnelSteps(F).forEach(function(s){
+    var row = el('div','fstep');
+    var l = el('div','fl');
+    l.appendChild(document.createTextNode(s.label));
+    l.appendChild(el('small',null,detail[s.key][0]));
+    row.appendChild(l);
+    var holder = el('div');
+    var b = el('div','fbar '+detail[s.key][1]);
+    b.style.width = Math.max(s.share, 2) + '%';
+    b.textContent = num(s.hours,0) + 'h  ·  ' + pct(s.share);
+    holder.appendChild(b);
+    row.appendChild(holder);
+    host.appendChild(row);
+  });
+
+  // Both bars share the selection's own denominator, so the second reads as
+  // "of the opportunities named in this period, this share was found".
+  var base = Math.max(F.opps_touched || 0, 1);
+  drawBars($('pipeBars'), [
+    {label:'Opportunities named in the time log  (' + num(F.opps_touched||0) + ')',
+     value:F.opps_touched||0, pct: 100},
+    {label:'Of those, found in the CRM extract  (' + num(F.opps_matched||0) + ')',
+     value:F.opps_matched||0, pct: 100*(F.opps_matched||0)/base}
+  ]);
+
+  var tiers = {};
+  D.matched.forEach(function(m){ tiers[m.tier] = (tiers[m.tier]||0)+1; });
+  var tot = D.matched.length || 1;
+  drawBars($('tierBars'), Object.keys(tiers).map(function(k){
+    return {label:k, value:tiers[k], pct:100*tiers[k]/tot};
+  }).sort(function(a,b){ return b.value-a.value; }));
+
+  var t = $('matchTable'); clear(t);
+  var thead = el('thead'), hr = el('tr');
+  ['Opportunity','Account','Outcome','Deal value','Hours logged','Closed','Matched on','People']
+    .forEach(function(h,i){ hr.appendChild(el('th', (i===3||i===4)?'num':null, h)); });
+  thead.appendChild(hr); t.appendChild(thead);
+  var tb = el('tbody');
+  D.matched.forEach(function(m){
+    var tr = el('tr');
+    var n = el('td'); n.appendChild(document.createTextNode(m.name));
+    var sd = el('div'); sd.style.color='var(--faint)'; sd.style.fontSize='11.5px';
+    sd.textContent = m.first_week + ' → ' + m.last_week;
+    n.appendChild(sd); tr.appendChild(n);
+    tr.appendChild(el('td',null,m.account));
+    var o = el('td');
+    o.appendChild(el('span','pill '+(m.stage_group==='Won'?'good':'bad'), m.stage_group));
+    tr.appendChild(o);
+    tr.appendChild(el('td','num', money(m.amount)));
+    tr.appendChild(el('td','num', num(m.hours,1)));
+    tr.appendChild(el('td',null,m.fiscal_period));
+    var tt = el('td'); tt.appendChild(el('span','pill '+(m.tier==='exact name'?'accent':''), m.tier));
+    tr.appendChild(tt);
+    tr.appendChild(el('td',null,m.people.join(', ')));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+}
+
+// ---- data health --------------------------------------------------------
+function drawHealth(){
+  var t = $('issueTable'); clear(t);
+  var thead = el('thead'), hr = el('tr');
+  ['What was found','Rows','What the pipeline did'].forEach(function(h,i){
+    hr.appendChild(el('th', i===1?'num':null, h)); });
+  thead.appendChild(hr); t.appendChild(thead);
+  var tb = el('tbody');
+  var explain = {
+    'Duplicate rows removed':
+      'Byte-identical rows appearing twice. Kept once.',
+    "Rows with an unreadable 'Week of'":
+      'Dropped — without a week they cannot be placed in a quarter.',
+    'Rows where the hour columns did not add up':
+      'Activity + preparation + travel did not equal the total. The three components are trusted over the stated total.',
+    'Rows in a still-filling week (excluded from totals)':
+      'The last week of the export was far thinner than a normal week, so it is treated as mid-collection and left out of every figure.'
+  };
+  D.issues.forEach(function(i){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,i.label));
+    var c = el('td','num');
+    c.appendChild(el('span','pill '+(i.count?'warn':'good'), num(i.count)));
+    tr.appendChild(c);
+    tr.appendChild(el('td',null, explain[i.label] || ''));
+    tb.appendChild(tr);
+  });
+  // structural findings the loader cannot fix on its own
+  [
+    ['Column names differ between the two exports', '2 columns',
+     '"Opportunity Name" became "OpportunityName" and "HoursTotal" became "Hours Total" between part 1 and part 2. The loader matches columns on a squashed name, so spacing and punctuation changes no longer break it, and it reports any column it does not recognise.'],
+    ['One department spelled two ways', '2 spellings',
+     '"VM Digital COE" and "VM, Digital COE" are the same unit. Rolled together for department totals; the manager column still separates the sub-teams.'],
+    ['Two departments have no manager recorded', '160 rows',
+     'Value Management Readiness and Global Functional Revenue Operations carry a blank VM Manager throughout. Shown as "(none recorded)" rather than silently grouped.'],
+    ['Bulk logging', D.headline.bulk_people + ' people',
+     'They account for ' + D.headline.bulk_hours_pct + '% of all logged hours. Not an error, but it makes raw hours non-comparable, which is why person-weeks exist.'],
+    ['Notes containing their own hour breakdown', D.headline.notes_with_own_breakdown + ' rows',
+     'Covering ' + num(D.headline.notes_breakdown_hours) + 'h. People are writing splits like "8h this, 4h that" into free text because the form gives them nowhere else to put it. Parsing this is the single biggest available gain in detail.'],
+    ['No key joins the time log to the CRM', D.headline.opps_touched + ' opportunities',
+     'Matched ' + D.headline.opps_matched + ' by name and by unique deal value. The rest cannot be traced to an outcome.']
+  ].forEach(function(r){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,r[0]));
+    var c = el('td','num'); c.appendChild(el('span','pill warn', r[1])); tr.appendChild(c);
+    tr.appendChild(el('td',null,r[2]));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+
+  var wb = $('warnBox'); clear(wb);
+  if(D.warnings.length){
+    var c = el('div','callout warn');
+    c.innerHTML = '<b>Loader warnings from this run:</b><ul class="tight">'
+      + D.warnings.map(function(w){ return '<li>'+esc(w)+'</li>'; }).join('') + '</ul>';
+    wb.appendChild(c);
+  } else {
+    wb.appendChild(el('p','why','No unrecognised columns in this run — every column in every '
+      + 'input file was understood.'));
+  }
+
+  var ft = $('fiscalTable'); clear(ft);
+  var fn = $('fiscalNote'); clear(fn);
+  if(!D.fiscal.evidence.length){
+    // Nothing matched, so there was nothing to score the calendar against.
+    // Say so rather than leaving an empty table under a confident heading.
+    var fw = el('div','callout warn');
+    fw.innerHTML = '<b>The fiscal calendar could not be checked against anything in this run.</b> '
+      + 'Scoring it needs opportunities that appear in both the time log and the CRM extract, '
+      + 'and this run matched none. Quarters are still grouped on a year starting 1 '
+      + esc(D.fiscal.start_month_name) + ', but that is an assumption here rather than a '
+      + 'tested one.';
+    fn.appendChild(fw);
+  } else {
+  var th2 = el('thead'), h2 = el('tr');
+  ['Year starts','Work lands in the closing quarter','Work lands in or before it','Verdict']
+    .forEach(function(h,i){ h2.appendChild(el('th', (i===1||i===2)?'num':null, h)); });
+  th2.appendChild(h2); ft.appendChild(th2);
+  var tb2 = el('tbody');
+  D.fiscal.evidence.forEach(function(e,i){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,'1 '+e.month_name));
+    tr.appendChild(el('td','num', e.same_quarter_pct+'%'));
+    tr.appendChild(el('td','num', e.work_before_close_pct+'%'));
+    var v = el('td');
+    v.appendChild(el('span','pill '+(i===0?'good':''), i===0 ? 'used' : 'rejected'));
+    tr.appendChild(v);
+    tb2.appendChild(tr);
+  });
+  ft.appendChild(tb2);
+  }
+
+  var lim = $('limits'); clear(lim);
+  var ul = el('ul','tight');
+  [
+    'Reporting coverage is ' + D.headline.coverage_pct + '%. Every absolute total understates '
+      + 'reality by roughly the inverse of that, and unevenly by person.',
+    'The project register was inspected by hand but is deliberately not loaded by the pipeline — '
+      + 'nothing in the time log names a project id, so any link would be a guess dressed as a fact.',
+    'The CRM extract contains only closed deals. Work on live pipeline, which is most of the '
+      + 'opportunity work here, has no outcome to point at yet and is not missing data.',
+    'Hours on a matched won deal do not mean the hours caused the win. The funnel measures '
+      + 'traceability, not contribution.',
+    'Deal values are counted once per opportunity within whichever period is selected. An '
+      + 'opportunity worked in two quarters appears in both quarter views; the "All reported '
+      + 'weeks" view is computed from the rows, not by adding the quarters up, so nothing is '
+      + 'counted twice there.'
+  ].forEach(function(s){ ul.appendChild(el('li',null,s)); });
+  lim.appendChild(ul);
+}
+
+// ---- wiring -------------------------------------------------------------
+function render(){
+  $('subtitle').textContent =
+    D.period.first_week + ' to ' + D.period.last_week + ' · '
+    + D.headline.weeks + ' complete weeks · ' + D.headline.people + ' people · fiscal year starts 1 '
+    + D.fiscal.start_month_name;
+  var draw = {overview:drawOverview, time:drawTime, people:drawPeople,
+              impact:drawImpact, health:drawHealth}[state.tab];
+  if(draw) draw();
+  $('foot').textContent = 'Built ' + D.generated + ' from ' + D.files.join(' + ')
+    + ' · regenerate with: python3 build.py';
+}
+
+var sel = $('qsel');
+QKEYS.concat(['__all__']).forEach(function(k){
+  var o = el('option', null, k==='__all__' ? 'All reported weeks' : k);
+  o.value = k; sel.appendChild(o);
+});
+sel.value = state.quarter;
+sel.addEventListener('change', function(){ state.quarter = sel.value; render(); });
+
+$('mPW').addEventListener('click', function(){
+  state.measure='pw'; $('mPW').className='on'; $('mHR').className=''; render(); });
+$('mHR').addEventListener('click', function(){
+  state.measure='hr'; $('mHR').className='on'; $('mPW').className=''; render(); });
+
+Array.prototype.forEach.call(document.querySelectorAll('nav.tabs button'), function(b){
+  b.addEventListener('click', function(){
+    Array.prototype.forEach.call(document.querySelectorAll('nav.tabs button'),
+      function(x){ x.className=''; });
+    b.className='on';
+    Array.prototype.forEach.call(document.querySelectorAll('section.tab'),
+      function(s){ s.className='tab'; });
+    $('tab-'+b.dataset.tab).className='tab on';
+    state.tab = b.dataset.tab;
+    render();
+  });
+});
+
+$('theme').addEventListener('click', function(){
+  var cur = document.documentElement.getAttribute('data-theme');
+  var next = cur === 'dark' ? 'light' : (cur === 'light' ? 'dark' :
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark'));
+  document.documentElement.setAttribute('data-theme', next);
+});
+
+render();
+})();
+</script>
+</body>
+</html>

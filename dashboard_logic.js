@@ -113,13 +113,23 @@ var VMDash = (function () {
     return gap > 0 ? "inflated" : "understated";
   }
 
-  /** The four evidence-chain steps, each a subset of the one before it. */
+  /**
+   * The evidence chain, each step a subset of the one before it.
+   *
+   * The "contested" step matters: nearly a quarter of the CRM's closed
+   * opportunities were merged into another record, imported for history, or
+   * rejected before qualification. The CRM files all of those under the stage
+   * group "Lost". Counting them as defeats understates the win rate by about
+   * ten points and treats duplicates as failures.
+   */
   function funnelSteps(funnel) {
     var top = funnel.all_hours || 1;
     var rows = [
       { key: "all", label: "All effort logged", hours: funnel.all_hours },
       { key: "opp", label: "Names an opportunity", hours: funnel.opp_linked_hours },
       { key: "crm", label: "Found in the CRM extract", hours: funnel.crm_matched_hours },
+      { key: "contested", label: "On a deal genuinely won or lost",
+        hours: funnel.contested_hours },
       { key: "won", label: "On a deal that was won", hours: funnel.won_hours }
     ];
     return rows.map(function (r) {

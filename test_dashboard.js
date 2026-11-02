@@ -52,9 +52,12 @@ function fixture() {
         label: "FY27 Q1", weeks: ["2026-05-04", "2026-05-11"], week_count: 2,
         people: ["Ana", "Bo"], person_count: 2, hours: 100, person_weeks: 4,
         funnel: {
-          all_hours: 100, opp_linked_hours: 40, crm_matched_hours: 10, won_hours: 4,
-          opps_touched: 3, opps_matched: 2, opps_won: 1,
-          value_touched: 300, value_matched: 200, value_won: 100
+          all_hours: 100, opp_linked_hours: 40, crm_matched_hours: 10,
+          contested_hours: 7, won_hours: 4,
+          opps_touched: 3, opps_matched: 2, opps_contested: 1,
+          opps_administrative: 1, opps_won: 1, win_rate: 100,
+          value_touched: 300, value_matched: 200, value_contested: 150,
+          value_won: 100
         },
         by_activity_pw: activityQ1, by_activity_hours: activityQ1,
         by_category_pw: [{ label: "Delivery", value: 80, pct: 80 }]
@@ -65,9 +68,12 @@ function fixture() {
         week_count: 5, people: ["Bo", "Cy"], person_count: 2,
         hours: 200, person_weeks: 8,
         funnel: {
-          all_hours: 200, opp_linked_hours: 60, crm_matched_hours: 20, won_hours: 6,
-          opps_touched: 4, opps_matched: 2, opps_won: 1,
-          value_touched: 400, value_matched: 200, value_won: 100
+          all_hours: 200, opp_linked_hours: 60, crm_matched_hours: 20,
+          contested_hours: 14, won_hours: 6,
+          opps_touched: 4, opps_matched: 2, opps_contested: 2,
+          opps_administrative: 0, opps_won: 1, win_rate: 50,
+          value_touched: 400, value_matched: 200, value_contested: 200,
+          value_won: 100
         },
         by_activity_pw: activityQ2, by_activity_hours: activityQ2,
         by_category_pw: [{ label: "Delivery", value: 150, pct: 75 }]
@@ -76,9 +82,12 @@ function fixture() {
     // One opportunity (worth 150, won) was worked in both quarters, so the
     // period totals are lower than the quarters added together.
     period_funnel: {
-      all_hours: 300, opp_linked_hours: 100, crm_matched_hours: 30, won_hours: 10,
-      opps_touched: 6, opps_matched: 3, opps_won: 1,
-      value_touched: 550, value_matched: 250, value_won: 100
+      all_hours: 300, opp_linked_hours: 100, crm_matched_hours: 30,
+      contested_hours: 21, won_hours: 10,
+      opps_touched: 6, opps_matched: 3, opps_contested: 2,
+      opps_administrative: 1, opps_won: 1, win_rate: 50,
+      value_touched: 550, value_matched: 250, value_contested: 350,
+      value_won: 100
     },
     period_tables: {
       by_activity_pw: [
@@ -165,7 +174,9 @@ eq(VMDash.pairRows(null, null).length, 0, "pairRows tolerates missing tables");
 // ---------------------------------------------------------------------------
 
 var steps = VMDash.funnelSteps(all.funnel);
-eq(steps.length, 4, "the evidence chain has four steps");
+eq(steps.length, 5, "the evidence chain has five steps");
+eq(steps.map(function (s) { return s.key; }).join(","),
+   "all,opp,crm,contested,won", "the steps are in narrowing order");
 near(steps[0].share, 100, "the first step is the whole");
 for (var i = 1; i < steps.length; i++) {
   ok(steps[i].hours <= steps[i - 1].hours,
@@ -173,9 +184,12 @@ for (var i = 1; i < steps.length; i++) {
   ok(steps[i].share <= steps[i - 1].share, "funnel share " + i + " never increases");
 }
 near(steps[2].share, 10, "crm-matched share is computed against all hours");
+ok(steps[3].hours < steps[2].hours,
+   "the contested step drops the administrative closures");
 
 var emptyFunnel = VMDash.funnelSteps({
-  all_hours: 0, opp_linked_hours: 0, crm_matched_hours: 0, won_hours: 0
+  all_hours: 0, opp_linked_hours: 0, crm_matched_hours: 0,
+  contested_hours: 0, won_hours: 0
 });
 ok(isFinite(emptyFunnel[0].share), "an empty funnel does not divide by zero");
 

@@ -37,6 +37,18 @@ BULK_MIN_MEDIAN_ROW_HOURS = 16.0
 # share of the median week's rows.
 PARTIAL_WEEK_THRESHOLD = 0.40
 
+# Stage names that close an opportunity without anyone winning or losing it:
+# duplicates folded together, records imported for history, deals rejected
+# before qualification. The CRM files all of these under the stage group
+# "Lost", which is the trap — counting them as losses drags the win rate down
+# by ten points and treats merged duplicates as defeats.
+ADMINISTRATIVE_STAGES = ("Merged", "Historical Data Only",
+                         "Reject Pre-Qualified", "Qual Out")
+
+# Below this many contested deals, a win-rate comparison is noise. Used to
+# label the figure, not to hide it.
+MIN_DEALS_FOR_COMPARISON = 30
+
 
 # ---------------------------------------------------------------------------
 # Column handling — survives the weekly export changing its mind
@@ -89,6 +101,19 @@ OPP_ALIASES = {
     "sub_industry":   ["subindustry"],
     "account_type":   ["accounttype"],
     "opp_type":       ["opportunitytype"],
+}
+
+
+REGISTER_ALIASES = {
+    "body_of_work":   ["vmcoebodyofwork", "bodyofwork"],
+    "sub_body":       ["subbodiesofwork", "subbodyofwork"],
+    "project":        ["projecttasks", "projecttask", "project"],
+    "description":    ["projecttaskdescription", "description"],
+    "leader":         ["leader"],
+    "project_team":   ["projectteam"],
+    "stakeholders":   ["stakeholders"],
+    "target":         ["targetdelivery", "target"],
+    "status":         ["status"],
 }
 
 
@@ -241,6 +266,14 @@ def load(data_dir):
         opp["_amount"] = to_float(opp["amount"])
         opp["_key"] = normalise_opp_name(opp["opp_name"])
         opp["_won"] = opp["stage_group"] == "Won"
+        opp["_administrative"] = any(s in opp["stage_name"]
+                                     for s in ADMINISTRATIVE_STAGES)
+        opp["_contested"] = not opp["_administrative"]
+
+    register_path = os.path.join(data_dir, "project_register.csv")
+    register = (read_csv(register_path, REGISTER_ALIASES, warnings)
+                if os.path.exists(register_path) else [])
+    register = [r for r in register if r["project"].strip()]
 
     issues["Duplicate rows removed"] = duplicates
     issues["Rows with an unreadable 'Week of'"] = unparsed_week
@@ -249,6 +282,7 @@ def load(data_dir):
     return {
         "rows": rows,
         "opportunities": opportunities,
+        "register": register,
         "warnings": warnings,
         "issues": issues,
         "raw_count": raw_count,
@@ -263,18 +297,27 @@ def load(data_dir):
 def match_opportunities(rows, opportunities):
     """
     The time log carries an opportunity *name* typed by hand; the CRM extract
-    carries an opportunity *id*. Nothing joins them directly. Match in three
-    tiers, weakest last, and record which tier produced each match so the
-    dashboard can show how much of the link is solid.
+    carries an opportunity *id*. Nothing joins them directly, so matching is
+    done on the name alone, in two tiers, each recorded against the match.
+
+    An earlier version added a third tier: if a logged deal value appeared
+    against exactly one CRM opportunity, treat that as a match. It tripled the
+    hit rate, and it was wrong. 93% of the CRM's deal values are already
+    unique, so "appears exactly once" filters almost nothing — it matches on a
+    coincidence of amount. Checking the results rather than the count, 20 of
+    those 23 matches linked companies with no word in common, and two different
+    logged opportunities both landed on the same deal. The three that did share
+    a word shared only "retail", "insurance" or "services".
+
+    The mistake was validating the rule in the direction that confirmed it:
+    name-matched pairs were checked for agreement on amount, which they have,
+    and amount-matched pairs were never checked for agreement on name, which
+    they do not.
     """
     by_exact = {o["opp_name"].strip(): o for o in opportunities if o["opp_name"].strip()}
     by_key = {}
     for opp in opportunities:
         by_key.setdefault(opp["_key"], []).append(opp)
-    by_amount = {}
-    for opp in opportunities:
-        by_amount.setdefault(round(opp["_amount"], 2), []).append(opp)
-
     matches = {}   # opportunity name as typed -> (opp, tier)
     for row in rows:
         name = row["opportunity_name"]
@@ -286,12 +329,6 @@ def match_opportunities(rows, opportunities):
         candidates = by_key.get(row["_opp_key"], [])
         if len(candidates) == 1:
             matches[name] = (candidates[0], "normalised name")
-            continue
-        amount = round(to_float(row["opportunity_amount"]), 2)
-        if amount > 0:
-            candidates = by_amount.get(amount, [])
-            if len(candidates) == 1:
-                matches[name] = (candidates[0], "unique deal value")
 
     for row in rows:
         hit = matches.get(row["opportunity_name"])
@@ -337,7 +374,12 @@ def infer_fiscal_start(rows, matches):
                 "work_before_close_pct": round(100.0 * before_or_same / total),
                 "sample": total,
             })
-    scores.sort(key=lambda s: (-s["same_quarter_pct"], -s["work_before_close_pct"]))
+    # Ranked on "no impossible cases" first: work logged *after* the quarter a
+    # deal closed in should not happen for pre-sale work, so a calendar that
+    # produces none of those is preferred over one that merely lands in the
+    # same quarter more often. On this sample the two criteria disagree, and
+    # the margin is thin either way — which the dashboard says out loud.
+    scores.sort(key=lambda s: (-s["work_before_close_pct"], -s["same_quarter_pct"]))
     return scores
 
 
@@ -346,6 +388,21 @@ def infer_fiscal_start(rows, matches):
 # ---------------------------------------------------------------------------
 
 def profile_people(rows, all_weeks):
+    """
+    Coverage is measured from the start of the export, except for people who
+    demonstrably were not there yet.
+
+    Two people joined in late August and have filed every week since; against a
+    24-week denominator they read as the worst reporters on the team at 29%,
+    which is the opposite of the truth. But "first week they appear" alone is
+    not enough to establish a start date — most people who first appear in week
+    two simply missed week one, and several of them have four to six years of
+    tenure. So the shortened denominator is applied only where tenure is
+    recorded as zero, which is the one corroborating signal available.
+    Unknown tenure is treated as present from the start: the conservative
+    reading, since it costs a few points of coverage rather than inventing a
+    hire date.
+    """
     by_person = collections.defaultdict(list)
     for row in rows:
         by_person[row["person"]].append(row)
@@ -356,6 +413,11 @@ def profile_people(rows, all_weeks):
         for row in person_rows:
             weeks[row["_week"]].append(row)
         weekly_hours = {w: sum(r["_hours"] for r in rs) for w, rs in weeks.items()}
+        first_week = min(weeks)
+        tenure = to_float(person_rows[0]["tenure_years"], default=None)
+        joined_late = (first_week > all_weeks[0]) and tenure == 0
+        weeks_since_joining = ([w for w in all_weeks if w >= first_week]
+                               if joined_late else list(all_weeks))
         rows_per_week = statistics.median(len(rs) for rs in weeks.values())
         median_row = statistics.median(r["_hours"] for r in person_rows)
         is_bulk = (rows_per_week <= BULK_MAX_ROWS_PER_WEEK
@@ -364,10 +426,16 @@ def profile_people(rows, all_weeks):
             "name": name,
             "department": person_rows[0]["_department"],
             "manager": person_rows[0]["manager"] or "(none recorded)",
-            "tenure": to_float(person_rows[0]["tenure_years"], default=None),
+            "tenure": tenure,
             "weeks_reported": len(weeks),
-            "weeks_possible": len(all_weeks),
-            "coverage_pct": round(100.0 * len(weeks) / len(all_weeks)) if all_weeks else 0,
+            "weeks_possible": len(weeks_since_joining),
+            "weeks_in_export": len(all_weeks),
+            "first_week": first_week,
+            "joined_late": joined_late,
+            "coverage_pct": round(100.0 * len(weeks) / len(weeks_since_joining))
+                            if weeks_since_joining else 0,
+            "coverage_pct_naive": round(100.0 * len(weeks) / len(all_weeks))
+                                  if all_weeks else 0,
             "total_hours": round(sum(weekly_hours.values()), 1),
             "median_week_hours": round(statistics.median(weekly_hours.values()), 1),
             "max_week_hours": round(max(weekly_hours.values()), 1),
@@ -439,6 +507,85 @@ def share_table(rows, dimension, value_key, limit=None, bulk_names=None):
     return table[:limit] if limit else table
 
 
+# Workstream tags people write by hand, and their observed misspellings.
+TAG_ALIASES = {"flexcredist": "flexcredits", "felxcredits": "flexcredits"}
+
+# Words too common in this register to identify a project on their own.
+PROJECT_STOPWORDS = {"the", "and", "for", "with", "value", "project", "support", "team"}
+
+DECLARED_PROJECT = re.compile(r"Project\s*:\s*(.+?)\s*(?:\n|$)", re.I)
+DECLARED_TAG = re.compile(r"#(\w[\w-]*)")
+
+
+def project_tokens(text):
+    return {w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+            if len(w) > 2 and w not in PROJECT_STOPWORDS}
+
+
+def declared_projects(notes):
+    """
+    Project labels the person wrote themselves — "Project: X" lines and
+    #hashtags. Only these are used. Matching free prose against the register
+    was tried and abandoned: project names here share words like "customer",
+    "evidence" and "strategy", so loose matching confidently filed recruitment
+    notes under a platform project. A smaller trustworthy number beats a larger
+    one built on guesses.
+    """
+    labels = [m.strip() for m in DECLARED_PROJECT.findall(notes or "")]
+    labels += [TAG_ALIASES.get(t.lower(), t.lower())
+               for t in DECLARED_TAG.findall(notes or "")]
+    return [L for L in labels if L]
+
+
+def match_projects(rows, register):
+    """
+    Tie logged time to the project register, in three tiers of decreasing
+    certainty, and record which tier produced each match.
+
+    Tier 1  the declared label is the register name
+    Tier 2  one name contains the other
+    Tier 3  every significant word of the register name appears in the label
+            (catches "RHT/Manufacturing/Energy & Utilities Industry Evidence
+            Gap Strategy" against the register's shorter wording)
+    """
+    indexed = []
+    for entry in register:
+        name = entry["project"].strip()
+        indexed.append((name, squash(name), project_tokens(name), entry))
+
+    def resolve(label):
+        flat = squash(label)
+        words = project_tokens(label)
+        if len(flat) < 5:
+            return None, None
+        for _, reg_flat, _, entry in indexed:
+            if flat == reg_flat:
+                return entry, "exact name"
+        for _, reg_flat, _, entry in indexed:
+            if len(flat) >= 8 and (flat in reg_flat or reg_flat in flat):
+                return entry, "name contains the other"
+        for _, _, reg_words, entry in indexed:
+            if len(reg_words) >= 3 and reg_words <= words:
+                return entry, "every register word present"
+        return None, None
+
+    unregistered = collections.Counter()
+    for row in rows:
+        row["_project"] = None
+        row["_project_tier"] = None
+        labels = declared_projects(row["notes"])
+        row["_declared_project"] = bool(labels)
+        for label in labels:
+            entry, tier = resolve(label)
+            if entry:
+                row["_project"] = entry["project"].strip()
+                row["_project_tier"] = tier
+                break
+        if labels and not row["_project"]:
+            unregistered[labels[0]] += 1
+    return unregistered
+
+
 def funnel_for(rows):
     """
     Logged hours -> names an opportunity -> found in the CRM -> deal was won.
@@ -458,20 +605,254 @@ def funnel_for(rows):
     matched_opps = {}
     for row in matched_rows:
         matched_opps[row["opportunity_name"]] = row["_matched_opp"]
-    won = {n: o for n, o in matched_opps.items() if o["_won"]}
+    # An opportunity that was merged into another, or imported for history,
+    # was never won or lost. It is dropped from the outcome step rather than
+    # counted as a defeat.
+    contested = {n: o for n, o in matched_opps.items() if o["_contested"]}
+    administrative = {n: o for n, o in matched_opps.items() if o["_administrative"]}
+    won = {n: o for n, o in contested.items() if o["_won"]}
+    contested_rows = [r for r in matched_rows if r["_matched_opp"]["_contested"]]
 
     return {
         "all_hours": round(sum(r["_hours"] for r in rows), 1),
         "opp_linked_hours": round(sum(r["_hours"] for r in opp_rows), 1),
         "crm_matched_hours": round(sum(r["_hours"] for r in matched_rows), 1),
-        "won_hours": round(sum(r["_hours"] for r in matched_rows
+        "contested_hours": round(sum(r["_hours"] for r in contested_rows), 1),
+        "won_hours": round(sum(r["_hours"] for r in contested_rows
                                if r["_matched_opp"]["_won"]), 1),
         "opps_touched": len(touched),
         "opps_matched": len(matched_opps),
+        "opps_contested": len(contested),
+        "opps_administrative": len(administrative),
         "opps_won": len(won),
+        "win_rate": round(100.0 * len(won) / len(contested), 1) if contested else 0,
         "value_touched": round(sum(touched.values())),
         "value_matched": round(sum(o["_amount"] for o in matched_opps.values())),
+        "value_contested": round(sum(o["_amount"] for o in contested.values())),
         "value_won": round(sum(o["_amount"] for o in won.values())),
+    }
+
+
+def projects_view(rows, register, unregistered, total_hours, crm_hours=0.0):
+    """
+    What the register says the team is working on, against where time actually
+    went. The interesting number is not the time that matched — it is the
+    projects with no traceable time at all.
+    """
+    by_project = collections.defaultdict(
+        lambda: {"hours": 0.0, "rows": 0, "people": set(), "tiers": collections.Counter()})
+    for row in rows:
+        if row["_project"]:
+            bucket = by_project[row["_project"]]
+            bucket["hours"] += row["_hours"]
+            bucket["rows"] += 1
+            bucket["people"].add(row["person"])
+            bucket["tiers"][row["_project_tier"]] += 1
+
+    tracked, dark = [], []
+    for entry in register:
+        name = entry["project"].strip()
+        record = {
+            "name": name,
+            "body_of_work": entry["body_of_work"] or "(unspecified)",
+            "leader": entry["leader"] or "(none recorded)",
+            "status": entry["status"] or "(unknown)",
+            "target": (entry["target"] or "").strip() or "(none)",
+        }
+        if name in by_project:
+            bucket = by_project[name]
+            record.update({
+                "hours": round(bucket["hours"], 1),
+                "rows": bucket["rows"],
+                "people": sorted(bucket["people"]),
+                "tier": bucket["tiers"].most_common(1)[0][0],
+            })
+            tracked.append(record)
+        else:
+            dark.append(record)
+    tracked.sort(key=lambda d: -d["hours"])
+    dark.sort(key=lambda d: (d["status"], d["name"]))
+
+    declared_rows = [r for r in rows if r["_declared_project"]]
+    matched_hours = sum(d["hours"] for d in tracked)
+
+    return {
+        "registered": len(register),
+        "tracked": tracked,
+        "dark": dark,
+        "matched_hours": round(matched_hours, 1),
+        "matched_pct": round(100.0 * matched_hours / total_hours, 1) if total_hours else 0,
+        "declared_rows": len(declared_rows),
+        "declared_hours": round(sum(r["_hours"] for r in declared_rows), 1),
+        "declared_pct": round(
+            100.0 * sum(r["_hours"] for r in declared_rows) / total_hours, 1)
+            if total_hours else 0,
+        "matched_hours_value": round(matched_hours, 1),
+        # How this attribution compares with the CRM one. Computed, not
+        # written down: the ratio moved from 6x to 19x when a bad matching
+        # tier was removed, and a hard-coded "six times" survived that change
+        # in three documents.
+        "times_crm": round(matched_hours / crm_hours, 1) if crm_hours else None,
+        "unregistered": [{"label": k, "rows": v}
+                         for k, v in unregistered.most_common(12)],
+        "by_body_of_work": share_table(
+            [r for r in rows if r["_project"]], "_body_of_work", "_hours"),
+    }
+
+
+SENIORITY_RULES = [
+    ("C-suite",  ("chro", "cio - cio", "cfo", "ceo", "coo", "c-suite")),
+    ("VP",       ("vp",)),
+    ("Director", ("director", "head of")),
+    ("Manager",  ("manager",)),
+]
+
+
+def seniority(audience):
+    """
+    Bucket the audience field by seniority. The CHRO/VP/Director distinction is
+    the only signal in this data about *who* the team reaches, and nothing
+    currently uses it.
+    """
+    text = (audience or "").lower()
+    if not text or text == "not presented":
+        return None
+    for label, needles in SENIORITY_RULES:
+        for needle in needles:
+            if needle in text:
+                # "oCHRO - HR Director" is a director, not a CHRO: the role
+                # after the dash wins.
+                tail = text.split("-")[-1]
+                if label == "C-suite" and ("director" in tail or "vp" in tail
+                                           or "manager" in tail):
+                    continue
+                return label
+    return "Other"
+
+
+def executive_reach(rows):
+    """Where presented work actually lands, by seniority of the audience."""
+    presented = [r for r in rows if r["_presented"]]
+    total = sum(r["_hours"] for r in presented)
+    buckets = collections.defaultdict(float)
+    for row in presented:
+        buckets[seniority(row["audience"]) or "Other"] += row["_hours"]
+    order = ["C-suite", "VP", "Director", "Manager", "Other"]
+    table = [{"label": k, "value": round(buckets[k], 1),
+              "pct": round(100.0 * buckets[k] / total, 1) if total else 0}
+             for k in order if buckets[k] > 0]
+    exec_hours = buckets["C-suite"] + buckets["VP"]
+    return {
+        "table": table,
+        "presented_hours": round(total, 1),
+        "exec_pct": round(100.0 * exec_hours / total, 1) if total else 0,
+    }
+
+
+def preparation_load(rows, min_hours=150):
+    """
+    Preparation hours against delivery hours, by activity.
+
+    The form has carried these in separate columns all along and nothing reads
+    them apart. Some activities cost nearly twice as much to prepare as to
+    deliver, which is a capacity fact no headline number shows.
+    """
+    split = collections.defaultdict(lambda: [0.0, 0.0])
+    for row in rows:
+        split[row["activity"]][0] += to_float(row["prep_hours"])
+        split[row["activity"]][1] += to_float(row["activity_hours"])
+    table = []
+    for activity, (prep, delivery) in split.items():
+        total = prep + delivery
+        if total < min_hours:
+            continue
+        table.append({
+            "label": activity,
+            "prep": round(prep, 1),
+            "delivery": round(delivery, 1),
+            "value": round(total, 1),
+            "pct": round(100.0 * prep / total, 1) if total else 0,
+        })
+    table.sort(key=lambda d: -d["pct"])
+    return table
+
+
+def closed_book_coverage(opportunities, touched_names):
+    """
+    The closed book the team did *not* touch.
+
+    Only the matched opportunities can be placed here, so this understates
+    coverage badly — but a dimension with zero matched deals against seventy
+    closed ones is still worth a leadership question.
+    """
+    contested = [o for o in opportunities if o["_contested"]]
+
+    def cut(field):
+        closed = collections.Counter(o[field] or "(blank)" for o in contested)
+        seen = collections.Counter(o[field] or "(blank)" for o in contested
+                                   if o["opp_name"].strip() in touched_names)
+        rows = []
+        for label, total in closed.most_common():
+            rows.append({"label": label, "closed": total,
+                         "touched": seen.get(label, 0),
+                         "pct": round(100.0 * seen.get(label, 0) / total, 1)})
+        return rows
+
+    touched = [o for o in contested if o["opp_name"].strip() in touched_names]
+    untouched = [o for o in contested if o["opp_name"].strip() not in touched_names]
+
+    def rate(group):
+        return round(100.0 * sum(1 for o in group if o["_won"]) / len(group), 1) \
+            if group else 0
+
+    def median_amount(group):
+        values = sorted(o["_amount"] for o in group)
+        return round(statistics.median(values)) if values else 0
+
+    return {
+        "by_segment": cut("segment"),
+        "by_industry": cut("super_industry")[:8],
+        "by_type": cut("opp_type"),
+        "contested_total": len(contested),
+        "touched": len(touched),
+        "untouched": len(untouched),
+        "touched_win_rate": rate(touched),
+        "untouched_win_rate": rate(untouched),
+        "touched_median": median_amount(touched),
+        "untouched_median": median_amount(untouched),
+        "comparison_is_reliable": len(touched) >= MIN_DEALS_FOR_COMPARISON,
+        "min_deals_for_comparison": MIN_DEALS_FOR_COMPARISON,
+        "losses": loss_breakdown(contested),
+    }
+
+
+def loss_breakdown(contested):
+    """
+    How the contested deals were lost — not another win rate.
+
+    Excluding "lost to do nothing" would lift the headline win rate from 42%
+    to 79%, and that would be the flattering-number move this dashboard exists
+    to avoid: in enterprise software the status quo is the main competitor, so
+    a deal lost to inaction is a real loss. The split is worth seeing on its
+    own terms, because losing four times as often to inaction as to a named
+    competitor points at a different problem than losing on features.
+    """
+    lost = [o for o in contested if not o["_won"]]
+    buckets = collections.Counter()
+    for opp in lost:
+        name = opp["stage_name"]
+        if "Do Nothing" in name:
+            buckets["Lost to inaction"] += 1
+        elif "Competition" in name:
+            buckets["Lost to a competitor"] += 1
+        else:
+            buckets["Lost, reason not recorded"] += 1
+    total = len(lost) or 1
+    return {
+        "total_lost": len(lost),
+        "won": len(contested) - len(lost),
+        "table": [{"label": k, "value": v, "pct": round(100.0 * v / total, 1)}
+                  for k, v in buckets.most_common()],
     }
 
 
@@ -503,6 +884,12 @@ def build(data_dir):
 
     matches = match_opportunities(rows, opportunities)
     fiscal_evidence = infer_fiscal_start(rows, matches)
+
+    unregistered = match_projects(rows, loaded["register"])
+    body_by_project = {e["project"].strip(): (e["body_of_work"] or "(unspecified)")
+                       for e in loaded["register"]}
+    for row in rows:
+        row["_body_of_work"] = body_by_project.get(row["_project"], "(unspecified)")
 
     all_weeks = sorted({r["_week"] for r in rows})
 
@@ -600,6 +987,11 @@ def build(data_dir):
             "tier": tier,
             "stage_group": opp["stage_group"],
             "stage": opp["stage_name"],
+            "administrative": opp["_administrative"],
+            "outcome": ("Administrative" if opp["_administrative"]
+                        else opp["stage_group"]),
+            "segment": opp["segment"],
+            "industry": opp["super_industry"],
             "amount": round(opp["_amount"]),
             "fiscal_period": opp["fiscal_period"],
             "segment": opp["segment"],
@@ -645,6 +1037,12 @@ def build(data_dir):
             "start_month": FISCAL_START_MONTH,
             "start_month_name": datetime.date(2000, FISCAL_START_MONTH, 1).strftime("%B"),
             "evidence": fiscal_evidence[:4],
+            # The candidate that would win on same-quarter frequency alone.
+            # It is usually not in the top four above, and leaving it out
+            # would make a thin call look settled.
+            "same_quarter_winner": (
+                max(fiscal_evidence, key=lambda s: s["same_quarter_pct"])
+                if fiscal_evidence else None),
         },
         "headline": {
             "total_hours": round(total_hours),
@@ -671,6 +1069,24 @@ def build(data_dir):
             "opps_matched": len(matched_detail),
             "notes_with_own_breakdown": len(self_itemised),
             "notes_breakdown_hours": round(sum(r["_hours"] for r in self_itemised)),
+            "opps_administrative": sum(1 for o in opportunities if o["_administrative"]),
+            "administrative_pct": round(
+                100.0 * sum(1 for o in opportunities if o["_administrative"])
+                / len(opportunities), 1) if opportunities else 0,
+            "win_rate_all_closed": round(
+                100.0 * sum(1 for o in opportunities if o["_won"])
+                / len(opportunities), 1) if opportunities else 0,
+            "win_rate_contested": round(
+                100.0 * sum(1 for o in opportunities if o["_won"] and o["_contested"])
+                / sum(1 for o in opportunities if o["_contested"]), 1)
+                if any(o["_contested"] for o in opportunities) else 0,
+            "exec_reach_pct": executive_reach(complete_rows)["exec_pct"],
+            "won_hours_pct": round(
+                100.0 * funnel_for(complete_rows)["won_hours"] / total_hours, 2)
+                if total_hours else 0,
+            "audience_blank_row_pct": round(
+                100.0 * sum(1 for r in complete_rows if not r["audience"])
+                / len(complete_rows), 1) if complete_rows else 0,
         },
         "lens_gap": lens_gap(complete_rows, itemised_rows),
         # Whole-period funnel, built from the rows. The dashboard's "All
@@ -678,6 +1094,14 @@ def build(data_dir):
         # because an opportunity worked either side of a quarter boundary
         # would otherwise have its value counted twice.
         "period_funnel": funnel_for(complete_rows),
+        "projects": projects_view(complete_rows, loaded["register"], unregistered,
+                                  total_hours,
+                                  funnel_for(complete_rows)["crm_matched_hours"]),
+        "reach": executive_reach(complete_rows),
+        "prep_load": preparation_load(complete_rows),
+        "coverage": closed_book_coverage(
+            opportunities,
+            {r["opportunity_name"] for r in complete_rows if r["_matched_opp"]}),
         # Whole-period breakdowns, for the same reason. Adding the quarters up
         # would divide by a truncated denominator, because each quarter's
         # activity table keeps only its own top rows — which silently inflates

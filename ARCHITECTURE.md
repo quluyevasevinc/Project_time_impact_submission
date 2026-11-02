@@ -5,8 +5,8 @@ is the part I think matters more: **the dashboard proves the problem is not in
 the reporting layer.**
 
 Half the question leadership asked — *what does the investment produce* — is
-unanswerable today, and no amount of better charting fixes it. 1.3% of logged
-hours can be traced to a closed deal; 39 of the 307 opportunities the team
+unanswerable today, and no amount of better charting fixes it. 0.4% of logged
+hours can be traced to a closed deal; 16 of the 307 opportunities the team
 worked on could be matched to the CRM at all. Not because the analysis is weak,
 but because a person types an opportunity *name* into a form while the CRM
 stores an *id*. That is a business-process defect that happens months upstream
@@ -45,7 +45,7 @@ Five structural consequences, all visible in the data:
 
 | Observed in the data | Root cause | Layer that must fix it |
 |---|---|---|
-| 39 of 307 opportunities matchable | No join key at capture | Capture |
+| 16 of 307 opportunities matchable | No join key at capture | Capture |
 | 38.8% of time in one undifferentiated bucket | Form has no sub-activity | Capture |
 | 72% reporting coverage, 25%–100% by person | No feedback loop to the person | Process |
 | Column names drift between exports | No data contract | Integration |
@@ -68,7 +68,10 @@ The architecture below is deliberately sized to the problem, and I have marked
 what I would *not* build yet:
 
 - **Not building:** streaming ingestion, a feature store, real-time anything.
-  The business cadence is weekly. Batch is correct.
+  The business cadence is weekly, so the diagram above is batch end to end —
+  scheduled loads, a weekly orchestration trigger, no message bus. An earlier
+  draft drew Pub/Sub and an event-driven trigger while the text argued for
+  batch; the picture was contradicting the argument.
 - **Not building:** a separate data lake tier. BigQuery is the lake and the
   warehouse at this volume.
 - **Am building:** entity resolution, data contracts, a semantic layer, and a
@@ -91,9 +94,9 @@ flowchart TB
     WD["Workday<br/>people, org, tenure"]
   end
 
-  subgraph S2["2 · Ingestion"]
-    PS["Pub/Sub<br/>time entry events"]
-    DS["Datastream / CDC<br/>CRM + HR"]
+  subgraph S2["2 · Ingestion — batch, weekly"]
+    LOAD["Scheduled load<br/><i>time entries</i>"]
+    DS["Scheduled extract<br/>CRM + HR"]
     GCS["GCS landing<br/><i>CSV fallback path</i>"]
   end
 
@@ -121,7 +124,7 @@ flowchart TB
     SLK["Slack digest<br/>+ coverage nudges"]
   end
 
-  TF --> PS --> RAW
+  TF --> LOAD --> RAW
   SF --> DS --> RAW
   WD --> DS
   GCS --> RAW
@@ -130,7 +133,7 @@ flowchart TB
   MART --> SEM --> LK & SNAP & SLK
   SLK -. "write-back:<br/>closes the coverage loop" .-> TF
 
-  ORCH["Dataform / Composer<br/><i>event-driven on arrival</i>"]
+  ORCH["Dataform / Composer<br/><i>weekly schedule</i>"]
   DQ["Quality gates<br/><i>contracts, freshness, coverage SLI</i>"]
   CAT["Dataplex<br/><i>lineage, PII tags, retention</i>"]
   ORCH -.-> S3
@@ -147,17 +150,22 @@ flowchart TB
 **1 · Fix capture, then everything else gets cheap.**
 Replacing the free-text opportunity field with a picker that writes
 `opportunity_id` is a two-week change to one form. It converts attribution from
-an inference problem that recovers 13% of opportunities — 1.3% of hours — into
+an inference problem that recovers 5% of opportunities — 0.4% of hours — into
 a foreign key. Every other component in this diagram gets simpler because of
 it. If leadership funds exactly one thing, this is the one, and the dashboard
 exists partly to make that case with a number rather than an opinion.
 
 **2 · Entity resolution is a service with memory, not a script.**
-The tiered matcher in `pipeline.py` is the prototype: exact name → normalised
-name → unique deal value. Promoted to the target state it becomes a persistent
-crosswalk that (a) stores a confidence score and the tier that produced each
-match, (b) is versioned so a restated match does not silently rewrite history,
-and (c) routes low-confidence candidates to a human queue instead of guessing.
+The name matcher in `pipeline.py` is the prototype, and its history is the
+argument for building this properly. A third tier matched on deal value and
+tripled the hit rate; it turned out to be a coincidence detector, because 93%
+of CRM amounts are already unique, and it linked unrelated companies. It was
+removed. Promoted to the target state, entity resolution becomes a persistent
+crosswalk that (a) stores a confidence score and the method behind each match,
+(b) is versioned so a restated match does not silently rewrite history, and
+(c) routes anything below a high threshold to a human queue instead of
+counting it. A rule that improves the number on its own authority is exactly
+what this layer exists to prevent.
 History is never re-matched silently — a corrected mapping is a new version
 with an effective date, so last quarter's board pack still reproduces.
 
@@ -232,13 +240,13 @@ phase before it.
 |---|---|---|---|
 | **0 · Now** | This repo | Leadership sees the real picture, including what is unanswerable. Builds the case for phase 2. | Nothing |
 | **1 · Weeks 1–4** | Land all three sources in BigQuery; contract tests; conformed date and org dimensions; dbt models | One source of truth; fiscal calendar becomes a fact, not an inference; drift fails loudly | Access |
-| **2 · Weeks 4–10** | **Opportunity picker in the time form**; entity-resolution service and crosswalk; backfill history with confidence scores | Attribution on new data goes from 1.3% of hours to near-complete; history gets a defensible, scored best effort | Form owner — the political dependency, not a technical one |
+| **2 · Weeks 4–10** | **Opportunity picker in the time form**; entity-resolution service and crosswalk; backfill history with confidence scores | Attribution on new data goes from 0.4% of hours to near-complete; history gets a defensible, scored best effort | Form owner — the political dependency, not a technical one |
 | **3 · Weeks 8–14** | Semantic layer; Looker; coverage SLI with Slack write-back | Metrics agree everywhere; coverage becomes an operational number with an owner, not a caveat | Phase 1 |
 | **4 · Quarter 2** | Open pipeline + post-sale realization sources; matched-control attribution model | The question the function is actually judged on becomes answerable, with a control group | Phase 2 |
 
 Phase 2 is the one that matters, and its real risk is organisational: it
 requires another team to change a form. That is why phase 0 ships first and
-leads with the 1.3% figure — the number is the business case.
+leads with the 0.4% figure — the number is the business case.
 
 ---
 
@@ -250,7 +258,7 @@ later*. These are service levels, with owners, not dashboard decorations:
 | Signal | Threshold | Why it matters |
 |---|---|---|
 | Reporting coverage | ≥ 90% of person-weeks filed | Currently 72%. Every total understates reality until this moves. |
-| Attribution rate | ≥ 95% of opportunity hours carry a valid id | The headline defect. Post-phase-2 this should be near 100%. |
+| Attribution rate | ≥ 95% of opportunity hours carry a valid id | The headline defect: 0.4% today. Post-phase-2 this should be near 100%. |
 | Catch-all concentration | No single activity above 15% of logged hours | Digital Experience Management is at 38.8%, which is what a bucket looks like when it has become a dumping ground. A rising number means the taxonomy stopped fitting the work. |
 | Schema contract | 0 unannounced changes | Two renamed columns across the only two exports provided. |
 | Freshness | Export landed by Tuesday 09:00 | Defines when the weekly number is trustworthy. |

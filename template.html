@@ -147,6 +147,7 @@ ul.tight{margin:0;padding-left:20px} ul.tight li{margin-bottom:6px}
   <button data-tab="time">Where time goes</button>
   <button data-tab="people">People</button>
   <button data-tab="impact">Evidence chain</button>
+  <button data-tab="projects">Projects</button>
   <button data-tab="health">Data health</button>
 </nav>
 
@@ -193,6 +194,19 @@ ul.tight{margin:0;padding-left:20px} ul.tight li{margin-bottom:6px}
     <p class="why">Share of team effort by category, each quarter. Quarters with fewer than four reported weeks are marked — they are stubs at the edge of the export, not real declines.</p>
     <div class="scroll"><table id="qoqTable"></table></div>
   </div>
+  <div class="grid2">
+    <div class="card">
+      <h2>What it costs to prepare</h2>
+      <p class="why">The form has carried preparation and delivery hours in separate columns all along, and no headline number reads them apart. Sorted by the share that is preparation — anything above half costs more to get ready for than to do.</p>
+      <div class="bars" id="prepBars"></div>
+    </div>
+    <div class="card">
+      <h2>Who the work reaches</h2>
+      <p class="why">Seniority of the audience, for the work that was presented to someone at all. A role after the dash wins: "oCHRO — HR Director" counts as a director, not a chief.</p>
+      <div class="bars" id="reachBars"></div>
+      <p class="why" id="reachNote" style="margin-top:14px;margin-bottom:0"></p>
+    </div>
+  </div>
   <div class="card">
     <h2>Effort by department</h2>
     <div class="bars" id="deptBars"></div>
@@ -203,7 +217,7 @@ ul.tight{margin:0;padding-left:20px} ul.tight li{margin-bottom:6px}
   <div class="callout warn" id="peopleCallout"></div>
   <div class="card">
     <h2>Who reports what, and how</h2>
-    <p class="why">Sorted by reporting coverage. <b>Itemised</b> loggers file real tasks; <b>bulk</b> loggers book most of a week to one line, so their hours describe a calendar, not a workload. The strip shows which weeks each person filed.</p>
+    <p class="why">Sorted by reporting coverage. <b>Itemised</b> loggers file real tasks; <b>bulk</b> loggers book most of a week to one line, so their hours describe a calendar, not a workload. The strip shows which weeks each person filed. Coverage counts from the start of the export, except for the two people whose tenure is recorded as zero and who first appear in late August — they have filed every week since, and a flat denominator showed them as the worst reporters on the team. Appearing late is not on its own evidence of joining late: most people who first appear in week two simply missed week one, and several have four to six years of tenure.</p>
     <div class="scroll"><table id="peopleTable"></table></div>
   </div>
 </section>
@@ -223,14 +237,53 @@ ul.tight{margin:0;padding-left:20px} ul.tight li{margin-bottom:6px}
     </div>
     <div class="card">
       <h2>How the match was made</h2>
-      <p class="why">There is no shared key between the two files. Matches are made on name, then on a deal value unique enough to identify one opportunity.</p>
+      <p class="why">There is no shared key between the two files, so matching is on the name alone. A tier that matched on deal value was removed: 93% of CRM amounts are already unique, so it filtered nothing and linked unrelated companies. The Data health tab has the detail.</p>
       <div class="bars" id="tierBars"></div>
     </div>
+  </div>
+  <div class="card">
+    <h2>Which closed deals the team reached</h2>
+    <p class="why">Administrative closures removed. The bars show what share of each segment's genuinely contested deals the team can be shown to have worked on — a floor, not a measurement, because only matched opportunities can be placed here at all.</p>
+    <div class="bars" id="covSegBars"></div>
+    <div style="height:18px"></div>
+    <div class="bars" id="covIndBars"></div>
+  </div>
+  <div class="card" id="selectionCard">
+    <h2>The comparison you will be asked for — and why it is not an answer</h2>
+    <p class="why" id="selectionWhy"></p>
+    <div class="bars" id="selectionBars"></div>
+    <div id="selectionWarn"></div>
+  </div>
+  <div class="card">
+    <h2>How the contested deals were lost</h2>
+    <p class="why" id="lossWhy"></p>
+    <div class="bars" id="lossBars"></div>
+    <div id="lossNote"></div>
   </div>
   <div class="card">
     <h2>The opportunities that did match</h2>
     <p class="why">Every link the pipeline could defend. This is the complete evidence base for any claim connecting the team's time to a won or lost deal.</p>
     <div class="scroll"><table id="matchTable"></table></div>
+  </div>
+</section>
+
+<section class="tab" id="tab-projects">
+  <div class="callout" id="projCallout"></div>
+  <div class="kpis" id="projKpis"></div>
+  <div class="card">
+    <h2>Projects with traceable time</h2>
+    <p class="why">Matched only where someone wrote the project themselves — a <code>Project:</code> line or a <code>#tag</code> in the notes. Free prose was deliberately not matched against the register; the reason is on the Data health tab.</p>
+    <div class="scroll"><table id="projTable"></table></div>
+  </div>
+  <div class="card">
+    <h2>Registered, but invisible in the time log</h2>
+    <p class="why">These projects are on the register with a status and a delivery target, and no logged hour can be tied to any of them. That does not mean nobody worked on them — it means the time log cannot show it. Several are already marked complete.</p>
+    <div class="scroll"><table id="darkTable"></table></div>
+  </div>
+  <div class="card">
+    <h2>Worked on, but not on the register</h2>
+    <p class="why">Labels people tagged their own time with that match no project in the register. Each is a real workstream the portfolio does not list.</p>
+    <div class="bars" id="unregBars"></div>
   </div>
 </section>
 
@@ -242,7 +295,7 @@ ul.tight{margin:0;padding-left:20px} ul.tight li{margin-bottom:6px}
   </div>
   <div class="card">
     <h2>Which fiscal calendar the quarters use</h2>
-    <p class="why">The CRM extract gives a fiscal period but never a close date, so the year-start has to be inferred. For each opportunity the pipeline could match, work should land in or before the quarter the deal closes in. Every candidate year-start was scored on that. The winner is used throughout; change <code>FISCAL_START_MONTH</code> in <code>pipeline.py</code> if the real calendar differs.</p>
+    <p class="why">The CRM extract gives a fiscal period but never a close date, so the year-start has to be inferred — and the inference is weak. Candidates are ranked first on <b>work never landing after the quarter a deal closed in</b>, an impossible case for pre-sale work. That test eliminates exactly one candidate: January, at 94%. The other eleven all score 100%, so the ranking then falls to same-quarter frequency, where February leads on 62% against March's 19%. <b>The awkward part:</b> January, the one eliminated, is also the one that would win on same-quarter frequency alone, at 75%. On sixteen matched deals this does not settle anything. February is used because it clears the first test and leads the remaining eleven on the second — not because the others failed anything: March also scores 100% and simply ranks lower on same-quarter frequency. Change <code>FISCAL_START_MONTH</code> in <code>pipeline.py</code> if the real calendar is known.</p>
     <div id="fiscalNote"></div>
     <div class="scroll"><table id="fiscalTable"></table></div>
   </div>
@@ -283,7 +336,9 @@ var D = JSON.parse(raw);
 var num = VMDash.num, pct = VMDash.pct, money = VMDash.money,
     isStub = VMDash.isStub, pairRows = VMDash.pairRows;
 var QKEYS = VMDash.quarterKeys(D);
-var state = { quarter: QKEYS[QKEYS.length-1], measure: 'pw', tab: 'overview' };
+// Opens on the whole period. Opening on the latest quarter put the evidence
+// chain on screen showing zeros, because none of the matched deals fall in it.
+var state = { quarter: '__all__', measure: 'pw', tab: 'overview' };
 
 // ---- helpers ------------------------------------------------------------
 function $(id){ return document.getElementById(id); }
@@ -392,10 +447,25 @@ function drawOverview(){
       Q.hours_per_person_week < 35 ? 'warn' : null);
   kpi('Customer-facing effort', pct(Q.prospect_facing_pct), '',
       'Share of effort flagged Prospect Facing');
-  kpi('Attached to an opportunity', pct(H.opp_linked_pct), '',
-      'Share of all logged hours naming an opportunity');
-  kpi('Traceable to a closed deal', pct(H.crm_matched_pct), '',
-      H.opps_matched + ' of ' + H.opps_touched + ' opportunities in the log could be found in the CRM extract',
+  kpi('Reaches VP or above', pct(H.exec_reach_pct), '',
+      'Of the work that was presented to someone — ' + num(D.reach.presented_hours,0)
+      + 'h across the whole export');
+  var oppPct = Q.hours ? 100 * Q.funnel.opp_linked_hours / Q.hours : 0;
+  var crmPct = Q.hours ? 100 * Q.funnel.crm_matched_hours / Q.hours : 0;
+  var wonPct = Q.hours ? 100 * Q.funnel.won_hours / Q.hours : 0;
+  kpi('Attached to an opportunity', pct(oppPct), '',
+      'Share of hours in this period naming an opportunity');
+  kpi('Found in the CRM', pct(crmPct), '',
+      (Q.funnel.opps_matched||0) + ' of ' + (Q.funnel.opps_touched||0)
+      + ' opportunities here could be found at all — '
+      + (Q.funnel.opps_administrative||0) + ' of those were merged or imported, '
+      + 'never won or lost',
+      'bad');
+  // One decimal rounds 0.157 to 0.2 and loses the point of the number.
+  kpi('On a deal that was won',
+      (wonPct > 0 && wonPct < 1) ? num(wonPct,2) + '%' : pct(wonPct), '',
+      num(Q.funnel.won_hours,0) + 'h on ' + (Q.funnel.opps_won||0)
+      + ' deals. This is the number an outcome claim would have to rest on',
       'bad');
 
   drawBars($('typeBars'), pairRows(
@@ -577,6 +647,19 @@ function drawTime(){
   });
   t.appendChild(tb);
 
+  drawBars($('prepBars'), D.prep_load.map(function(r){
+    return { label: r.label + '  (' + num(r.prep,0) + 'h prep / ' + num(r.delivery,0)
+                    + 'h delivered)', value: r.value, pct: r.pct };
+  }));
+
+  drawBars($('reachBars'), D.reach.table);
+  $('reachNote').textContent =
+    num(D.reach.presented_hours,0) + ' hours reached a named audience — '
+    + pct(100 * D.reach.presented_hours / Math.max(D.headline.total_hours,1))
+    + ' of everything logged. The rest is either internal or was never recorded '
+    + 'as presented: the audience field is blank on '
+    + pct(D.headline.audience_blank_row_pct) + ' of rows.';
+
   drawBars($('deptBars'), Q.by_department_pw || []);
 }
 
@@ -645,8 +728,17 @@ function drawPeople(){
       p.coverage_pct + '%'));
     var cd = el('div'); cd.style.color='var(--faint)'; cd.style.fontSize='11.5px';
     cd.style.marginTop='3px';
-    cd.textContent = p.weeks_reported + '/' + p.weeks_possible;
+    cd.textContent = p.weeks_reported + '/' + p.weeks_possible
+      + (p.joined_late ? ' since joining' : '');
     cp.appendChild(cd);
+    if(p.joined_late){
+      var jl = el('div'); jl.style.marginTop='3px';
+      jl.appendChild(el('span','pill','joined ' + p.first_week));
+      jl.title = 'Tenure is recorded as zero and they first appear mid-period, '
+        + 'so coverage counts from their first logged week. Against all '
+        + p.weeks_in_export + ' weeks it would read ' + p.coverage_pct_naive + '%.';
+      cp.appendChild(jl);
+    }
     tr.appendChild(cp);
 
     tr.appendChild(el('td','num', num(p.median_week_hours,1)+'h'));
@@ -675,15 +767,25 @@ function drawImpact(){
     + 'never carries. ' + H.opps_matched + ' of the ' + H.opps_touched + ' opportunities in the '
     + 'log could be matched to the ' + H.opps_in_crm + ' closed deals — ' + pct(H.crm_matched_pct)
     + ' of logged hours. Any win-rate or ROI figure built on that base would be a number with '
-    + 'no evidence under it. Putting the opportunity id in the time log closes this gap in one change.';
+    + 'no evidence under it. Putting the opportunity id in the time log closes this gap in one change.'
+    + '<br><br><b>One trap before you read the funnel.</b> ' + pct(H.administrative_pct)
+    + ' of the closed book was never won or lost — merged into another record, imported for '
+    + 'history, or rejected before qualification — and the CRM files all of it under the stage '
+    + 'group "Lost". Counting those as defeats puts the win rate at ' + pct(H.win_rate_all_closed)
+    + ' when the contested figure is ' + pct(H.win_rate_contested) + '. '
+    + (F.opps_administrative||0) + ' of the ' + (F.opps_matched||0)
+    + ' matched here fall in that bucket, and are excluded below.';
 
   var detail = {
     all: ['Every hour in the selected period', ''],
     opp: [(F.opps_touched||0) + ' distinct opportunities · '
           + money(F.value_touched||0) + ' of deal value', 'fade1'],
     crm: [(F.opps_matched||0) + ' opportunities matched · '
-          + money(F.value_matched||0), 'fade2'],
-    won: [(F.opps_won||0) + ' won · ' + money(F.value_won||0), 'fade3']
+          + money(F.value_matched||0), 'fade1'],
+    contested: [(F.opps_contested||0) + ' contested · ' + (F.opps_administrative||0)
+          + ' were merged or imported, not lost', 'fade2'],
+    won: [(F.opps_won||0) + ' won of ' + (F.opps_contested||0) + ' · '
+          + money(F.value_won||0), 'fade3']
   };
   var host = $('funnel'); clear(host);
   VMDash.funnelSteps(F).forEach(function(s){
@@ -718,6 +820,72 @@ function drawImpact(){
     return {label:k, value:tiers[k], pct:100*tiers[k]/tot};
   }).sort(function(a,b){ return b.value-a.value; }));
 
+  // --- coverage of the closed book ---
+  var C = D.coverage;
+  function covRows(src, cap){
+    return src.slice(0, cap).map(function(r){
+      return { label: r.label + '  (' + r.touched + ' of ' + r.closed + ')',
+               value: r.touched, pct: r.pct };
+    });
+  }
+  drawBars($('covSegBars'), covRows(C.by_segment, 6));
+  drawBars($('covIndBars'), covRows(C.by_industry, 6));
+
+  // --- the selection-effect trap, shown rather than hidden ---
+  $('selectionWhy').textContent =
+    'Win rate on contested deals the team can be shown to have worked on, '
+    + 'against the rest of the closed book. Someone will compute this, so it '
+    + 'is here — with the reason it cannot carry a conclusion.';
+  drawBars($('selectionBars'), [
+    {label:'Worked on by the team  (' + C.touched + ' deals)',
+     value:C.touched, pct:C.touched_win_rate},
+    {label:'Rest of the closed book  (' + C.untouched + ' deals)',
+     value:C.untouched, pct:C.untouched_win_rate}
+  ]);
+  var sw = $('selectionWarn'); clear(sw);
+  var warn = el('div','callout warn');
+  warn.innerHTML = C.comparison_is_reliable
+    ? '<b>Treat with care even so.</b> Value Managers are assigned to large, '
+      + 'strategic, already-promising deals, so part of any gap is who was '
+      + 'chosen rather than what was done. A matched control — comparable '
+      + 'untouched deals of the same segment, size and type — is the only '
+      + 'honest version of this chart.'
+    : '<b>This gap is not a finding.</b> It rests on ' + C.touched + ' deals, '
+      + 'against a threshold of ' + C.min_deals_for_comparison + ' before a '
+      + 'difference means anything. Two deals landing the other way would move '
+      + 'it by twenty-five points. Selection is the other problem: work is not '
+      + 'assigned at random, so part of any gap is who was chosen rather than '
+      + 'what was done — though note these ' + C.touched + ' deals are '
+      + '<i>smaller</i> than the rest of the book (median ' + money(C.touched_median)
+      + ' against ' + money(C.untouched_median) + '), so whatever the selection '
+      + 'rule is here, it is not simply "the big ones". Fix the join first; '
+      + 'build a matched control second; quote a number third.';
+  sw.appendChild(warn);
+
+  // --- how losses break down ---
+  var L = C.losses;
+  $('lossWhy').textContent =
+    'Of the ' + C.contested_total + ' genuinely contested deals in the closed '
+    + 'book, ' + L.won + ' were won and ' + L.total_lost + ' were lost. This is '
+    + 'what the losses were lost to.';
+  drawBars($('lossBars'), L.table);
+  var ln = $('lossNote'); clear(ln);
+  var inaction = (L.table.filter(function(r){ return r.label === 'Lost to inaction'; })[0] || {}).value || 0;
+  var rival = (L.table.filter(function(r){ return r.label === 'Lost to a competitor'; })[0] || {}).value || 0;
+  var note = el('div','callout');
+  note.innerHTML = '<b>This is not another win rate, deliberately.</b> Drop the '
+    + inaction + ' deals lost to inaction and the figure jumps from '
+    + pct(100*L.won/Math.max(C.contested_total,1)) + ' to '
+    + pct(100*L.won/Math.max(C.contested_total-inaction,1)) + ' — which would be '
+    + 'exactly the flattering move this page exists to avoid. In enterprise '
+    + 'software the status quo is the main competitor, so a deal lost to doing '
+    + 'nothing is a real loss. The split is worth seeing on its own terms: '
+    + 'losing ' + (rival ? (inaction/rival).toFixed(1) + '×' : 'far') + ' more '
+    + 'often to inaction than to a named rival points at a different problem '
+    + 'than losing on features — and it is the problem a value case is meant '
+    + 'to solve.';
+  ln.appendChild(note);
+
   var t = $('matchTable'); clear(t);
   var thead = el('thead'), hr = el('tr');
   ['Opportunity','Account','Outcome','Deal value','Hours logged','Closed','Matched on','People']
@@ -732,7 +900,14 @@ function drawImpact(){
     n.appendChild(sd); tr.appendChild(n);
     tr.appendChild(el('td',null,m.account));
     var o = el('td');
-    o.appendChild(el('span','pill '+(m.stage_group==='Won'?'good':'bad'), m.stage_group));
+    o.appendChild(el('span','pill ' + (m.administrative ? ''
+                                       : m.stage_group==='Won' ? 'good' : 'bad'),
+                     m.outcome));
+    if(m.administrative){
+      var sd = el('div'); sd.style.color='var(--faint)'; sd.style.fontSize='11.5px';
+      sd.style.marginTop='3px'; sd.textContent = 'never won or lost';
+      o.appendChild(sd);
+    }
     tr.appendChild(o);
     tr.appendChild(el('td','num', money(m.amount)));
     tr.appendChild(el('td','num', num(m.hours,1)));
@@ -743,6 +918,95 @@ function drawImpact(){
     tb.appendChild(tr);
   });
   t.appendChild(tb);
+}
+
+// ---- projects -----------------------------------------------------------
+function drawProjects(){
+  var P = D.projects;
+
+  $('projCallout').innerHTML =
+    '<b>The register lists ' + P.registered + ' projects. ' + P.tracked.length
+    + ' of them can be seen in the time log.</b> Not because the other '
+    + P.dark.length + ' were not worked on — because nothing in the time form '
+    + 'records a project. The only link available is what people type into free '
+    + 'text themselves, which ' + pct(P.declared_pct) + ' of hours carry. Add a '
+    + 'project field to the form and this page stops being an estimate.';
+
+  var kp = $('projKpis'); clear(kp);
+  function kpi(lab, val, unit, note, flag){
+    var k = el('div','kpi' + (flag?' flag-'+flag:''));
+    k.appendChild(el('div','lab',lab));
+    var v = el('div','val'); v.appendChild(document.createTextNode(val));
+    if(unit){ v.appendChild(el('small',null,unit)); }
+    k.appendChild(v);
+    if(note) k.appendChild(el('div','note',note));
+    kp.appendChild(k);
+  }
+  kpi('Projects on the register', num(P.registered), '',
+      'From project_register.csv');
+  kpi('Visible in the time log', num(P.tracked.length), '',
+      'Time can be tied to these with confidence',
+      P.tracked.length < P.registered / 2 ? 'warn' : null);
+  kpi('No traceable time', num(P.dark.length), '',
+      'On the register, invisible in the hours', 'bad');
+  kpi('Hours people tagged themselves', pct(P.declared_pct), '',
+      num(P.declared_hours,0) + 'h carry a Project: line or a #tag');
+  kpi('Hours tied to a register project', pct(P.matched_pct), '',
+      num(P.matched_hours,0) + 'h — ' + num(P.times_crm,1)
+      + '× the CRM attribution rate');
+
+  var t = $('projTable'); clear(t);
+  var th = el('thead'), hr = el('tr');
+  [['Project',null],['Body of work',null],['Leader',null],['Status',null],
+   ['Target',null],['Hours','num'],['People','num'],['Matched on',null]]
+    .forEach(function(h){ hr.appendChild(el('th', h[1], h[0])); });
+  th.appendChild(hr); t.appendChild(th);
+  var tb = el('tbody');
+  P.tracked.forEach(function(p){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,p.name));
+    tr.appendChild(el('td',null,p.body_of_work));
+    tr.appendChild(el('td',null,p.leader));
+    var st = el('td');
+    st.appendChild(el('span','pill '+(p.status==='Complete'?'good':''), p.status));
+    tr.appendChild(st);
+    tr.appendChild(el('td',null,p.target));
+    tr.appendChild(el('td','num', num(p.hours,1)));
+    var pc = el('td','num', num(p.people.length));
+    pc.title = p.people.join(', ');
+    tr.appendChild(pc);
+    var ti = el('td');
+    ti.appendChild(el('span','pill '+(p.tier==='exact name'?'accent':''), p.tier));
+    tr.appendChild(ti);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+
+  var dt = $('darkTable'); clear(dt);
+  var dh = el('thead'), dr = el('tr');
+  ['Project','Body of work','Leader','Status','Target delivery']
+    .forEach(function(h){ dr.appendChild(el('th', null, h)); });
+  dh.appendChild(dr); dt.appendChild(dh);
+  var dtb = el('tbody');
+  P.dark.forEach(function(p){
+    var tr = el('tr');
+    tr.appendChild(el('td',null,p.name));
+    tr.appendChild(el('td',null,p.body_of_work));
+    tr.appendChild(el('td',null,p.leader));
+    var st = el('td');
+    st.appendChild(el('span','pill '+(p.status==='Complete'?'good':'warn'), p.status));
+    tr.appendChild(st);
+    tr.appendChild(el('td',null,p.target));
+    dtb.appendChild(tr);
+  });
+  dt.appendChild(dtb);
+
+  var maxRows = P.unregistered.length
+    ? Math.max.apply(null, P.unregistered.map(function(u){ return u.rows; })) : 1;
+  drawBars($('unregBars'), P.unregistered.map(function(u){
+    return { label: u.label + '  (' + u.rows + ' rows)', value: u.rows,
+             pct: 100 * u.rows / maxRows };
+  }));
 }
 
 // ---- data health --------------------------------------------------------
@@ -785,7 +1049,25 @@ function drawHealth(){
     ['Notes containing their own hour breakdown', D.headline.notes_with_own_breakdown + ' rows',
      'Covering ' + num(D.headline.notes_breakdown_hours) + 'h. People are writing splits like "8h this, 4h that" into free text because the form gives them nowhere else to put it. Parsing this is the single biggest available gain in detail.'],
     ['No key joins the time log to the CRM', D.headline.opps_touched + ' opportunities',
-     'Matched ' + D.headline.opps_matched + ' by name and by unique deal value. The rest cannot be traced to an outcome.']
+     'Matched ' + D.headline.opps_matched + ' on the name. The rest cannot be traced to an outcome.'],
+    ['A matching rule that tripled the number and was wrong', '23 false matches',
+     'Treating a deal value that appears against exactly one CRM opportunity as a match '
+     + 'raised attribution from 16 opportunities to 39. It was a coincidence detector: 93% of '
+     + 'CRM amounts are already unique, so the rule filtered almost nothing. 20 of its 23 '
+     + 'matches linked companies with no word in common, and two different logged '
+     + 'opportunities both resolved to the same deal. Removed. The figures on this dashboard '
+     + 'are the 16 that match on name, corroborated by 15 of them also agreeing on value.'],
+    ['No key joins the time log to the project register',
+     D.projects.registered + ' projects',
+     'The time form has no project field, so the only link is what people type themselves: a '
+     + '"Project:" line or a #tag, which ' + pct(D.projects.declared_pct) + ' of hours carry. '
+     + 'Matching free prose instead was tried and rejected — register names share words like '
+     + '"customer", "evidence" and "strategy", and loose matching confidently filed a '
+     + 'recruitment note under a platform project. ' + D.projects.tracked.length + ' of '
+     + D.projects.registered + ' projects could be tied to time this way.'],
+    ['The same workstream tagged three different ways', '3 spellings',
+     '#flexcredits, #flexcredist and #felxcredits are one tag. Folded together; a tag picker '
+     + 'in the form would stop it recurring.']
   ].forEach(function(r){
     var tr = el('tr');
     tr.appendChild(el('td',null,r[0]));
@@ -824,13 +1106,22 @@ function drawHealth(){
     .forEach(function(h,i){ h2.appendChild(el('th', (i===1||i===2)?'num':null, h)); });
   th2.appendChild(h2); ft.appendChild(th2);
   var tb2 = el('tbody');
-  D.fiscal.evidence.forEach(function(e,i){
+  var shown = D.fiscal.evidence.slice();
+  var alt = D.fiscal.same_quarter_winner;
+  // The candidate that would win on same-quarter alone usually falls outside
+  // the top four. Showing the table without it makes a thin call look settled.
+  if(alt && !shown.some(function(e){ return e.month_name === alt.month_name; })){
+    shown.push(alt);
+  }
+  shown.forEach(function(e,i){
+    var isAlt = alt && e.month_name === alt.month_name && i !== 0;
     var tr = el('tr');
     tr.appendChild(el('td',null,'1 '+e.month_name));
     tr.appendChild(el('td','num', e.same_quarter_pct+'%'));
     tr.appendChild(el('td','num', e.work_before_close_pct+'%'));
     var v = el('td');
-    v.appendChild(el('span','pill '+(i===0?'good':''), i===0 ? 'used' : 'rejected'));
+    v.appendChild(el('span','pill '+(i===0?'good':(isAlt?'warn':'')),
+      i===0 ? 'used' : (isAlt ? 'wins on same-quarter alone' : 'rejected')));
     tr.appendChild(v);
     tb2.appendChild(tr);
   });
@@ -842,8 +1133,9 @@ function drawHealth(){
   [
     'Reporting coverage is ' + D.headline.coverage_pct + '%. Every absolute total understates '
       + 'reality by roughly the inverse of that, and unevenly by person.',
-    'The project register was inspected by hand but is deliberately not loaded by the pipeline — '
-      + 'nothing in the time log names a project id, so any link would be a guess dressed as a fact.',
+    'Project attribution covers ' + pct(D.projects.matched_pct) + ' of hours and uses only '
+      + 'self-declared labels. The ' + D.projects.dark.length + ' projects with no traceable '
+      + 'time were almost certainly worked on; the time log simply cannot show it.',
     'The CRM extract contains only closed deals. Work on live pipeline, which is most of the '
       + 'opportunity work here, has no outcome to point at yet and is not missing data.',
     'Hours on a matched won deal do not mean the hours caused the win. The funnel measures '
@@ -863,7 +1155,7 @@ function render(){
     + D.headline.weeks + ' complete weeks · ' + D.headline.people + ' people · fiscal year starts 1 '
     + D.fiscal.start_month_name;
   var draw = {overview:drawOverview, time:drawTime, people:drawPeople,
-              impact:drawImpact, health:drawHealth}[state.tab];
+              impact:drawImpact, projects:drawProjects, health:drawHealth}[state.tab];
   if(draw) draw();
   $('foot').textContent = 'Built ' + D.generated + ' from ' + D.files.join(' + ')
     + ' · regenerate with: python3 build.py';

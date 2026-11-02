@@ -8,7 +8,7 @@ design for the system that would make its central question answerable.
 | Document | What it covers |
 |---|---|
 | [`NOTES.md`](NOTES.md) | The metrics chosen and why, the data issues found, three things for leadership, AI usage note |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Target-state design. The dashboard shows that 1.3% of logged hours can be traced to an outcome — this is the design for fixing that, upstream, where the defect is created |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Target-state design. The dashboard shows that 0.4% of logged hours can be traced to an outcome — this is the design for fixing that, upstream, where the defect is created |
 | `dashboard.html` | The working dashboard. Build it with the steps below, then double-click |
 
 ## Running it
@@ -63,7 +63,9 @@ If a run prints no `NOTE` lines, every column in every file was understood.
 | `template.html` | The page's appearance — layout, styling, charts. Not openable on its own; it says so if you try. |
 | `test_pipeline.py` | Contract tests for the pipeline, plus the build and JavaScript checks. |
 | `test_dashboard.js` | Contract tests for `dashboard_logic.js`. |
+| `test_render.js` | A DOM stub, so the page's drawing code can run without a browser. |
 | `run_js_tests.py` | Runs the JavaScript tests on whatever engine the machine has. |
+| `run_render_tests.py` | Renders every tab head-first and fails on a thrown error or an unrendered value. |
 | `data/` | The exports. |
 | `dashboard.html` | The output. Regenerated each run. |
 | `NOTES.md` | Why these metrics, what's wrong with the data, what I'd do next. |
@@ -76,14 +78,15 @@ If a run prints no `NOTE` lines, every column in every file was understood.
 python3 -m unittest -v
 ```
 
-One command covers both languages: 32 Python tests, and 53 checks against the
-page's own computation layer. Still no dependencies — the JavaScript runs on
-whatever engine is already present (macOS ships JavaScriptCore, CI runners ship
-Node), and skips rather than fails if there is none.
+One command covers both languages: 63 Python tests, 57 checks against the page's
+computation layer, and 48 headless renders of every tab under every filter and
+measure. Still no dependencies — the JavaScript runs on whatever engine is
+already present (macOS ships JavaScriptCore, CI runners ship Node) and skips
+rather than fails if there is none.
 
 They are contract tests rather than unit tests: each pins an assumption the
 dashboard's conclusions rest on, so a future export cannot quietly change a
-number leadership is reading. Three are worth knowing about:
+number leadership is reading. Five are worth knowing about:
 
 - One asserts the attribution rate stays **low**. If it ever looks healthy
   without a change at the point of capture, the matcher has started guessing.
@@ -92,8 +95,15 @@ number leadership is reading. Three are worth knowing about:
   both quarters but should be counted once overall.
 - One asserts a truncated activity table **does not** sum to 100%, which is
   what it would do if its percentages were taken over a truncated total.
+- One asserts most registered projects still have **no** traceable time, and
+  another that a note full of register vocabulary naming no project matches
+  nothing. Loose matching tripled the apparent coverage and was wrong about
+  half the time; these two keep it from creeping back.
+- One asserts the contested win rate stays **above** the naive one. If they
+  ever match, merged duplicates and historical imports have started being
+  counted as lost deals again.
 
-The last two are regressions. Both shipped as bugs, in page code that no test
+The middle two are regressions. Both shipped as bugs, in page code that no test
 could reach until the computation was moved into `dashboard_logic.js`.
 
 ## Two settings worth knowing about

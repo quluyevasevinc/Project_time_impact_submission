@@ -5,3 +5,5 @@ _site/
 drift.txt
 build.log
 .js_tests_bundle.js
+.render_bundle.js
+.probe.js
